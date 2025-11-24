@@ -44,9 +44,7 @@ def manually_add_bad_channels(
     raw: mne.io.Raw,
     additional_bads: list[str],
 ) -> mne.io.Raw:
-    assert isinstance(additional_bads, list), (
-        "additional_bads must be a list of channel names."
-    )
+    assert isinstance(additional_bads, list), "additional_bads must be a list of channel names."
     for ch in additional_bads:
         raw.info["bads"].append(ch)
     return raw
@@ -119,36 +117,57 @@ def get_ch_names(raw: mne.io.Raw, modality: str) -> list[str]:
     if modality not in ["eog", "ecg"]:
         raise ValueError("modality must be either 'eog' or 'ecg'")
     if modality == "eog":
-        eog_chs = mne.pick_types(raw.info, meg=False, eeg=False, eog=True, exclude=[])
-        eog_ch_names = [raw.ch_names[pick] for pick in eog_chs]
+        chs = mne.pick_types(raw.info, eog=True, exclude="")
         # [x for x in raw.ch_names if "EOG" in x]
     elif modality == "ecg":
-        ecg_chs = mne.pick_types(raw.info, meg=False, eeg=False, ecg=True, exclude=[])
-        eog_ch_names = [raw.ch_names[pick] for pick in ecg_chs]
-        # [x for x in raw.ch_names if "ECG" in x]
+        chs = mne.pick_types(raw.info, ecg=True, exclude="")
 
-    return eog_ch_names
+    ch_names = [raw.ch_names[pick] for pick in chs]
+    # [x for x in raw.ch_names if "ECG" in x]
+
+    return ch_names
 
 
-def ica_find_bads(
-    ica: ICA,
-    raw: mne.io.Raw,
-    modality: str,
-) -> tuple[list[int], list[float]]:
-    if modality not in ["eog", "ecg"]:
+def _ica_find_bads(ica: ICA, raw: mne.io.Raw, modality: str) -> tuple[list[int], list[float]]:
+    inds: list[int] = []
+    scores: list[float] = []
+    if modality not in ["eog", "ecg", "both"]:
         raise ValueError("modality must be either 'eog' or 'ecg'")
     if modality == "eog":
         inds, scores = ica.find_bads_eog(raw, ch_name=get_ch_names(raw, "eog"))
     elif modality == "ecg":
         inds, scores = ica.find_bads_ecg(raw, ch_name=get_ch_names(raw, "ecg"))
+    elif modality == "both":
+        inds_eog, scores_eog = ica.find_bads_eog(raw, ch_name=get_ch_names(raw, "eog"))
+        inds_ecg, scores_ecg = ica.find_bads_ecg(raw, ch_name=get_ch_names(raw, "ecg"))
+        inds = sorted(set(inds_eog + inds_ecg))
+        scores = sorted(set(scores_eog + scores_ecg))
+
     return inds, scores
 
 
-def ica_exclude_components(ica: ICA, inds_to_exclude: list[int]) -> ICA:
+def _ica_exclude_components(ica: ICA, inds_to_exclude: list[int]) -> ICA:
     ica.exclude = sorted(set(inds_to_exclude))
+    return ica
+
+
+def ica_find_and_exclude_bads(
+    ica: ICA,
+    raw: mne.io.Raw,
+    modality: str = "both",
+) -> ICA:
+    inds, _ = _ica_find_bads(ica, raw, modality)
+    ica = _ica_exclude_components(ica, inds)
     return ica
 
 
 def ica_apply(ica: ICA, raw: mne.io.Raw) -> mne.io.Raw:
     raw_clean = ica.apply(raw)
     return raw_clean
+
+
+def save_raw(raw: mne.io.Raw, output_path: Path | str) -> None:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    raw.save(output_path, overwrite=True)
+    print(f"✔ Raw File Saved in:\n{output_path}\n")
