@@ -1,24 +1,24 @@
 # %%
 # Import Room
 import blab_meeg.preproc as pp
+import mne
 import matplotlib.pyplot as plt
 from pathlib import Path
 from mne.preprocessing import ICA
 
 
-# %% define paths and files
-# Calling the file
+# %% Define paths and files
 base_dir = Path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE")
 experiment = "EXP1"
 sname = "CA124"
-output_dir = Path(f"D:/COGITATE/PROCESSED/MEG_ANALYSIS/{experiment}")
+output_dir = Path(f"D:/COGITATE/PREPROC/COG_MEEG_EXP1_RELEASE/{sname}_preproc")
 # Insert files
 raw_file = base_dir / sname / f"{sname}_{experiment}_MEEG" / f"{sname}_MEEG_1_DurR1.fif"
 cal_file = base_dir / "metadata" / "calibration_crosstalk_coreg" / "CA124_ses-1_acq-calibration_meg.dat"
 ct_file = base_dir / "metadata" / "calibration_crosstalk_coreg" / "CA124_ses-1_acq-crosstalk_meg.fif"
 
 # %% Load Raw Data
-raw = pp.load_dur(raw_file)
+raw = mne.io.read_raw(raw_file, preload=True)
 
 # %% Remove Bad Channels
 

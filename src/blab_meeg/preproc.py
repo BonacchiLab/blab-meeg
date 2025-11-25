@@ -6,12 +6,6 @@ from mne.preprocessing import find_bad_channels_maxwell, maxwell_filter, ICA
 auto_bad_channels_history = {"CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"]}
 
 
-def load_dur(dur_path: Path | str) -> mne.io.Raw:
-    dur_path = Path(dur_path)
-    raw = mne.io.read_raw_fif(dur_path, preload=True)
-    return raw
-
-
 def auto_detect_bad_channels(
     raw: mne.io.Raw,
     cal_file: Path,
@@ -34,6 +28,8 @@ def auto_detect_bad_channels(
     )
     print("Noisy channels:", auto_noisy)
     print("Flat channels :", auto_flat)
+    print("Scores        :", auto_scores)
+    # save to json history
 
     raw.info["bads"].extend(auto_noisy + auto_flat)
 

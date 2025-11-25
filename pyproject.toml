@@ -3,9 +3,7 @@ name = "blab-meeg"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Niccolò Bonacchi", email = "nbonacchi@gmail.com" }
-]
+authors = [{ name = "Niccolò Bonacchi", email = "nbonacchi@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
     "matplotlib>=3.10.7",
@@ -23,6 +21,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=7.1.0",
+    "pytest>=9.0.1",
 ]
 
 [tool.uv.sources]

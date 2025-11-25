@@ -10,3 +10,4 @@ wheels/
 .venv
 __scratches
 scratch*
+# uv.lock
