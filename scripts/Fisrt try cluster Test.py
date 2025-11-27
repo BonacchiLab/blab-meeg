@@ -297,144 +297,625 @@ fig = easycap_montage.plot(kind="3d", show=False)  # 3D
 fig = fig.gca().view_init(azim=70, elev=15)  # set view angle for tutorial
 
 
-#%%
-ssvep_folder = mne.datasets.ssvep.data_path()
-ssvep_data_raw_path = (
-    ssvep_folder / "sub-02" / "ses-01" / "eeg" / "sub-02_ses-01_task-ssvep_eeg.vhdr"
-)
-ssvep_raw = mne.io.read_raw_brainvision(ssvep_data_raw_path, verbose=False)
-
-# Use the preloaded montage
-ssvep_raw.set_montage(easycap_montage)
-fig = ssvep_raw.plot_sensors(show_names=True)
-
-# Apply a template montage directly, without preloading
-ssvep_raw.set_montage("easycap-M1")
-fig = ssvep_raw.plot_sensors(show_names=True)
-
-
-
-#%%
-layout_from_raw = mne.channels.make_eeg_layout(raw.info)
-# same result as mne.channels.find_layout(raw.info, ch_type='eeg')
-layout_from_raw.plot()
-
-
-#Another try 
-
-#%%
-epochs.compute_psd(fmin=2.0, fmax=40.0).plot(
-    average=True, amplitude=False, picks="data", exclude="bads"
-)
-
 
 #%%
 
 epochs.compute_psd().plot_topomap(ch_type="grad", normalize=False, contours=0)
 
-#%% NO WORKING
-_, ax = plt.subplots()
-spectrum = epochs.compute_psd(fmin=0.1, fmax=330 , tmax=None, n_jobs=-0.1, method='multitaper')
-# average across epochs first
-mean_spectrum = spectrum.average()
-psds, freqs = mean_spectrum.get_data(return_freqs=True)
-# then convert to dB and take mean & standard deviation across channels
-psds = 10 * np.log10(psds)
-psds_mean = psds.mean(axis=0)
-psds_std = psds.std(axis=0)
-
-ax.plot(freqs, psds_mean, color="k")
-ax.fill_between(
-    freqs,
-    psds_mean - psds_std,
-    psds_mean + psds_std,
-    color="k",
-    alpha=0.5,
-    edgecolor="none",
-)
-ax.set(
-    title="Multitaper PSD (gradiometers)",
-    xlabel="Frequency (Hz)",
-    ylabel="Power Spectral Density (dB)",
-)
-
-#%%
-# Estimate PSDs based on "mean" and "median" averaging for comparison.
-kwargs = dict(fmin=0.1, fmax=330, n_jobs=-0.1)
-psds_welch_mean, freqs_mean = epochs.compute_psd(
-    "welch", average="mean", **kwargs
-).get_data(return_freqs=True)
-psds_welch_median, freqs_median = epochs.compute_psd(
-    "welch", average="median", **kwargs
-).get_data(return_freqs=True)
-
-# Convert power to dB scale.
-psds_welch_mean = 10 * np.log10(psds_welch_mean)
-psds_welch_median = 10 * np.log10(psds_welch_median)
-
-# We will only plot the PSD for a single sensor in the first epoch.
-ch_name = "MEG 0122"
-ch_idx = epochs.info["ch_names"].index(ch_name)
-epo_idx = 0
-
-_, ax = plt.subplots()
-ax.plot(
-    freqs_mean,
-    psds_welch_mean[epo_idx, ch_idx, :],
-    color="k",
-    ls="-",
-    label="mean of segments",
-)
-ax.plot(
-    freqs_median,
-    psds_welch_median[epo_idx, ch_idx, :],
-    color="k",
-    ls="--",
-    label="median of segments",
-)
-
-ax.set(
-    title=f"Welch PSD ({ch_name}, Epoch {epo_idx})",
-    xlabel="Frequency (Hz)",
-    ylabel="Power Spectral Density (dB)",
-)
-ax.legend(loc="upper right")
-
-
-
-#%%
-
-freqs = np.logspace(*np.log10([6, 35]), num=8)
-n_cycles = freqs / 2.0  # different number of cycle per frequency
-power, itc = epochs.compute_tfr(
-    method="morlet",
-    freqs=freqs,
-    n_cycles=n_cycles,
-    average=True,
-    return_itc=True,
-    decim=3,
-)
-
-#%%
-
-power.plot_topo(baseline=(-0.5, 0), mode="logratio", title="Average power")
-power.plot(picks=[82], baseline=(-0.5, 0), mode="logratio", title=power.ch_names[82])
-
-fig, axes = plt.subplots(1, 2, figsize=(7, 4), layout="constrained")
-topomap_kw = dict(
-    ch_type="grad", tmin=0.5, tmax=1.0, baseline=(-0.5, 0), mode="logratio", show=False
-)
-plot_dict = dict(Alpha=dict(fmin=8, fmax=12), Beta=dict(fmin=13, fmax=25))
-for ax, (title, fmin_fmax) in zip(axes, plot_dict.items()):
-    power.plot_topomap(**fmin_fmax, axes=ax, **topomap_kw)
-    ax.set_title(title)
-
-#%%
-itc.plot_topo(title="Inter-Trial coherence", vmin=0.0, vmax=1.0, cmap="Reds")
 
 
 
 
 
 #%%
+# 0) ver que eventos tens disponíveis
+print("Event keys disponíveis:", list(epochs.event_id.keys()))
 
+# 1) construir listas de rótulos por prefixo
+def keys_with_prefix(prefix):
+    keys = [k for k in epochs.event_id.keys() if k.startswith(prefix)]
+    if not keys:
+        raise ValueError(f"Nenhuma etiqueta encontrada com prefixo '{prefix}'")
+    return keys
+
+faces_keys = keys_with_prefix("faces")
+fonts_keys = keys_with_prefix("fonts")   # ou "objects" conforme necessário
+
+# 2) calcular médias (evoked) a partir dessas listas
+faces_evoked = epochs[faces_keys].average()
+fonts_evoked = epochs[fonts_keys].average()
+
+# 3) combinar para obter diferença (faces - fonts)
+evoked_diff = mne.combine_evoked([faces_evoked, fonts_evoked], weights=[1, -1])
+
+# 4) seleccionar magnetómetros (sem sobrescrever o objeto original)
+evoked_diff_mag = evoked_diff.copy().pick(picks="mag")  # pick modifica in-place, por isso usamos copy()
+
+# 5) plot topo (usa-se plot_topo sem argumentos de cor se provocar erro)
+evoked_diff_mag.plot_topo(legend=False, title="Faces - Fonts (mag)")
+
+#%%
+
+faces_evoked.plot()
+
+#%%
+faces_evoked.copy().pick("mag").plot_topo()
+
+
+#%%%
+mne.viz.plot_compare_evokeds([faces_evoked, fonts_evoked])
+
+#%%
+faces_data = epochs[faces_keys].get_data()   # shape: (n_trials, n_channels, n_times)
+print(faces_data.shape)
+
+
+
+
+#%%
+import numpy as np
+from scipy.stats import ttest_rel
+import mne
+
+# parâmetros
+tmin_win = -0.2
+tmax_win = 0.0
+tmin_win2 = 0.0
+tmax_win2 = 0.8
+alpha = 0.05  # threshold FDR
+
+# --- 0) obter trials das faces (já tens faces_keys) ---
+faces_trials = epochs[faces_keys].get_data()  # shape: (n_trials, n_channels, n_times)
+times = epochs.times  # eixo temporal compartilhado
+
+# --- 1) índices temporais das janelas ---
+idx1 = np.where((times >= tmin_win) & (times < tmax_win))[0]
+idx2 = np.where((times >= tmin_win2) & (times <= tmax_win2))[0]
+
+if len(idx1) == 0 or len(idx2) == 0:
+    raise ValueError("Uma das janelas temporais não contém pontos de tempo — verifica os limites ou o sampling rate.")
+
+# --- 2) calcular média dentro das janelas por trial e por canal ---
+# shape resultante: (n_trials, n_channels)
+win1_mean = faces_trials[:, :, idx1].mean(axis=2)
+win2_mean = faces_trials[:, :, idx2].mean(axis=2)
+
+# --- 3) fazer t-test emparelhado (paired) sensor-wise ---
+# ttest_rel espera (n_obs, n_meas), aqui testamos entre as janelas ao longo dos trials
+tvals = np.zeros(win1_mean.shape[1])
+pvals = np.ones(win1_mean.shape[1])
+for ch in range(win1_mean.shape[1]):
+    t, p = ttest_rel(win2_mean[:, ch], win1_mean[:, ch])
+    tvals[ch] = t
+    pvals[ch] = p
+
+# --- 4) correção FDR (Benjamini-Hochberg) ---
+def bh_fdr(pvals, alpha=0.05):
+    p = np.asarray(pvals)
+    n = p.size
+    order = np.argsort(p)
+    sorted_p = p[order]
+    thresh = (np.arange(1, n+1) * alpha) / n
+    below = sorted_p <= thresh
+    if not np.any(below):
+        return np.zeros(n, dtype=bool)
+    max_idx = np.max(np.where(below)[0])
+    p_cutoff = sorted_p[max_idx]
+    return p <= p_cutoff
+
+significant_mask = bh_fdr(pvals, alpha=alpha)  # boolean array length n_channels
+sig_channels = [epochs.ch_names[i] for i, sig in enumerate(significant_mask) if sig]
+
+print(f"Number of significant channels (FDR q={alpha}): {len(sig_channels)}")
+print("Significant channel names:", sig_channels)
+
+# --- 5) Plot topo dos t-values apenas para magnetómetros e marcar os significativos ---
+# Preparar evoked-like object só para obter info e nomes dos mags na ordem certa
+evoked_faces = epochs[faces_keys].average()           # evoked de todas as faces (para info/times)
+evoked_mag = evoked_faces.copy().pick_types(meg='mag')  # só magnetómetros
+
+# Precisamos dos tvals e do mask ordenados só para estes canais mags
+# Encontrar índices dos canais magnéticos dentro do array global
+mag_chs = evoked_mag.ch_names
+# mapear cada mag_ch ao índice correspondente no epochs.ch_names
+mag_indices_global = [epochs.ch_names.index(ch) for ch in mag_chs]
+
+tvals_mag = tvals[mag_indices_global]
+mask_mag = significant_mask[mag_indices_global]
+
+import matplotlib.pyplot as plt
+from mne.viz import plot_topomap
+
+# plot topomap dos t-values com máscara para significância
+
+fig, ax = plt.subplots()
+
+im, cm = plot_topomap(
+    tvals_mag,          # dados (t-values)
+    evoked_mag.info,    # info do objeto evoked
+    mask=mask_mag,      # máscara de significância
+    mask_params=dict(marker='o', markersize=8, markerfacecolor='w'),
+    contours=0,
+    axes=ax,
+    show=False          # plotamos depois com plt.show()
+)
+
+# ajustar cores manualmente
+im.set_clim(vmin=np.min(tvals_mag), vmax=np.max(tvals_mag))
+
+plt.colorbar(im, ax=ax)
+plt.show()
+
+
+
+
+
+#%%
+import matplotlib.pyplot as plt
+from mne.viz import plot_topomap
+import numpy as np
+
+fig, ax = plt.subplots(figsize=(10,6)) 
+
+# plot topo
+im, cm = plot_topomap(
+    tvals_mag,
+    evoked_mag.info,
+    mask=mask_mag,
+    mask_params=dict(marker='o', markersize=8, markerfacecolor='w'),
+    contours=0,
+    axes=ax,
+    show=False
+)
+im.set_clim(vmin=np.min(tvals_mag), vmax=np.max(tvals_mag))
+plt.colorbar(im, ax=ax)
+
+# layout do topo
+layout = mne.find_layout(evoked_mag.info)
+pos = layout.pos[:, :2]  # pegar x, y
+pos = pos - np.mean(pos, axis=0)  # centralizar
+
+# aplicar escala diferente para x e y (esticado horizontalmente)
+scale_x = 0.24   # aumenta largura
+scale_y = 0.21  # mantém altura
+pos[:, 0] = pos[:, 0] / np.max(np.abs(pos[:, 0])) * scale_x
+pos[:, 1] = pos[:, 1] / np.max(np.abs(pos[:, 1])) * scale_y
+
+# adicionar nomes dos canais
+for i, ch_name in enumerate(evoked_mag.ch_names):
+    x, y = pos[i]
+    ax.text(x, y, ch_name, ha='center', va='center', fontsize=6)
+
+plt.show()
+
+
+#%%
+
+#%%
+import numpy as np
+from scipy.stats import ttest_rel
+import mne
+import matplotlib.pyplot as plt
+from mne.viz import plot_topomap
+
+# --- parâmetros ---
+tmin_win = -0.2
+tmax_win = 0.0
+tmin_win2 = 0.0
+tmax_win2 = 0.8
+alpha = 0.05  # threshold FDR
+
+# --- 0) obter trials das faces ---
+faces_trials = epochs[faces_keys].get_data()  # (n_trials, n_channels, n_times)
+times = epochs.times
+
+# --- 1) índices temporais ---
+idx1 = np.where((times >= tmin_win) & (times < tmax_win))[0]
+idx2 = np.where((times >= tmin_win2) & (times <= tmax_win2))[0]
+
+if len(idx1) == 0 or len(idx2) == 0:
+    raise ValueError("Uma das janelas temporais não contém pontos de tempo — verifica limites ou sampling rate.")
+
+# --- 2) média por trial e canal ---
+win1_mean = faces_trials[:, :, idx1].mean(axis=2)
+win2_mean = faces_trials[:, :, idx2].mean(axis=2)
+
+# --- 3) t-test emparelhado por canal ---
+tvals = np.zeros(win1_mean.shape[1])
+pvals = np.ones(win1_mean.shape[1])
+for ch in range(win1_mean.shape[1]):
+    t, p = ttest_rel(win2_mean[:, ch], win1_mean[:, ch])
+    tvals[ch] = t
+    pvals[ch] = p
+
+# --- 4) correção FDR ---
+def bh_fdr(pvals, alpha=0.05):
+    p = np.asarray(pvals)
+    n = p.size
+    order = np.argsort(p)
+    sorted_p = p[order]
+    thresh = (np.arange(1, n+1) * alpha) / n
+    below = sorted_p <= thresh
+    if not np.any(below):
+        return np.zeros(n, dtype=bool)
+    max_idx = np.max(np.where(below)[0])
+    p_cutoff = sorted_p[max_idx]
+    return p <= p_cutoff
+
+significant_mask = bh_fdr(pvals, alpha=alpha)
+sig_channels = [epochs.ch_names[i] for i, sig in enumerate(significant_mask) if sig]
+
+print(f"Number of significant channels (FDR q={alpha}): {len(sig_channels)}")
+print("Significant channel names:", sig_channels)
+
+# --- 5) preparar objeto evoked EEG ---
+evoked_faces = epochs[faces_keys].average()
+evoked_eeg = evoked_faces.copy().pick_types(eeg=True)  # só EEG
+
+# tvals e mask apenas para canais EEG
+eeg_chs = evoked_eeg.ch_names
+eeg_indices_global = [epochs.ch_names.index(ch) for ch in eeg_chs]
+
+tvals_eeg = tvals[eeg_indices_global]
+mask_eeg = significant_mask[eeg_indices_global]
+
+# --- 6) plot topo ---
+fig, ax = plt.subplots(figsize=(10, 6))
+
+im, cm = plot_topomap(
+    tvals_eeg,
+    evoked_eeg.info,
+    mask=mask_eeg,
+    mask_params=dict(marker='o', markersize=8, markerfacecolor='w'),
+    contours=0,
+    axes=ax,
+    show=False
+)
+im.set_clim(vmin=np.min(tvals_eeg), vmax=np.max(tvals_eeg))
+plt.colorbar(im, ax=ax)
+
+# layout e nomes dos canais
+layout = mne.find_layout(evoked_eeg.info)
+pos = layout.pos[:, :2]
+pos = pos - np.mean(pos, axis=0)  # centralizar
+
+scale_x = 0.10
+scale_y = 0.135
+pos[:, 0] = pos[:, 0] / np.max(np.abs(pos[:, 0])) * scale_x
+pos[:, 1] = pos[:, 1] / np.max(np.abs(pos[:, 1])) * scale_y
+
+for i, ch_name in enumerate(evoked_eeg.ch_names):
+    x, y = pos[i]
+    ax.text(x, y, ch_name, ha='center', va='center', fontsize=6)
+
+plt.show()
+
+#%%
+import pandas as pd
+
+# --- EEG ---
+evoked_eeg = evoked_faces.copy().pick_types(eeg=True)
+eeg_chs = evoked_eeg.ch_names
+eeg_indices_global = [epochs.ch_names.index(ch) for ch in eeg_chs]
+tvals_eeg = tvals[eeg_indices_global]
+pvals_eeg = pvals[eeg_indices_global]
+mask_eeg = significant_mask[eeg_indices_global]
+
+df_eeg = pd.DataFrame({
+    'channel': eeg_chs,
+    'type': 'EEG',
+    't_value': tvals_eeg,
+    'p_value': pvals_eeg,
+    'significant': mask_eeg
+})
+
+# --- MEG ---
+# Escolhendo magnetómetros
+evoked_mag = evoked_faces.copy().pick_types(meg='mag')
+mag_chs = evoked_mag.ch_names
+mag_indices_global = [epochs.ch_names.index(ch) for ch in mag_chs]
+tvals_mag = tvals[mag_indices_global]
+pvals_mag = pvals[mag_indices_global]
+mask_mag = significant_mask[mag_indices_global]
+
+df_meg = pd.DataFrame({
+    'channel': mag_chs,
+    'type': 'MEG',
+    't_value': tvals_mag,
+    'p_value': pvals_mag,
+    'significant': mask_mag
+})
+
+# --- Juntar ambos ---
+df_all = pd.concat([df_eeg, df_meg], ignore_index=True)
+print(df_all)
+
+# Se quiser, salvar em CSV
+ df_all.to_csv("C:\\Users\\tomas\\Desktop\\MEG_outputs\\t_test_channels.csv", index=False)
+
+
+
+#%%
+# EEG significativos
+sig_eeg_chs = df_eeg[df_eeg['significant']]['channel'].tolist()
+evoked_sig_eeg = evoked_faces.copy().pick_channels(sig_eeg_chs)
+
+# MEG significativos (magnetómetros)
+sig_mag_chs = df_meg[df_meg['significant']]['channel'].tolist()
+evoked_sig_mag = evoked_faces.copy().pick_channels(sig_mag_chs)
+
+# EEG
+evoked_sig_eeg.plot(
+    titles='Evoked EEG - canais significativos',
+    spatial_colors=True
+)
+
+# MEG
+evoked_sig_mag.plot(
+    titles='Evoked MEG - magnetómetros significativos',
+    spatial_colors=True
+)
+
+
+
+#%% 
+import matplotlib.pyplot as plt
+
+# --- EEG ---
+if len(sig_eeg_chs) > 0:
+    evoked_sig_eeg = evoked_faces.copy().pick_channels(sig_eeg_chs)
+    mean_eeg = evoked_sig_eeg.data.mean(axis=0)  # média ao longo dos canais
+    times = evoked_sig_eeg.times
+
+    plt.figure(figsize=(8,4))
+    plt.plot(times, mean_eeg, color='blue', label='EEG - canais significativos')
+    plt.axvline(0, color='k', linestyle='--')  # tempo zero (stimulus)
+    plt.xlabel('Tempo (s)')
+    plt.ylabel('Amplitude (uV)')
+    plt.title('Resposta média EEG - canais significativos')
+    plt.legend()
+    plt.show()
+else:
+    print("Nenhum canal EEG significativo encontrado.")
+
+# --- MEG (magnetómetros) ---
+if len(sig_mag_chs) > 0:
+    evoked_sig_mag = evoked_faces.copy().pick_channels(sig_mag_chs)
+    mean_mag = evoked_sig_mag.data.mean(axis=0)
+    times = evoked_sig_mag.times
+
+    plt.figure(figsize=(8,4))
+    plt.plot(times, mean_mag, color='red', label='MEG - canais significativos')
+    plt.axvline(0, color='k', linestyle='--')
+    plt.xlabel('Tempo (s)')
+    plt.ylabel('Amplitude (fT)')
+    plt.title('Resposta média MEG - canais significativos')
+    plt.legend()
+    plt.show()
+else:
+    print("Nenhum canal MEG significativo encontrado.")
+
+
+#%%
+bands = {
+    'delta': (0.5, 4),
+    'theta': (4, 8),
+    'alpha': (8, 12),
+    'beta':  (12, 30),
+    'gamma': (30, 100)  # podes ajustar o limite superior se quiseres
+}
+# --- Exemplo para Alpha EEG ---
+l_freq, h_freq = bands['alpha']
+epochs_alpha = epochs.copy().filter(l_freq, h_freq, fir_design='firwin')
+
+# Extrair trials
+faces_trials_alpha = epochs_alpha[faces_keys].get_data()
+times = epochs_alpha.times
+
+# Janelas temporais
+idx1 = np.where((times >= tmin_win) & (times < tmax_win))[0]
+idx2 = np.where((times >= tmin_win2) & (times <= tmax_win2))[0]
+
+win1_mean = faces_trials_alpha[:, :, idx1].mean(axis=2)
+win2_mean = faces_trials_alpha[:, :, idx2].mean(axis=2)
+
+# t-test sensor-wise
+tvals_alpha = np.zeros(win1_mean.shape[1])
+pvals_alpha = np.ones(win1_mean.shape[1])
+for ch in range(win1_mean.shape[1]):
+    t, p = ttest_rel(win2_mean[:, ch], win1_mean[:, ch])
+    tvals_alpha[ch] = t
+    pvals_alpha[ch] = p
+
+# Filtrar apenas canais EEG do epochs_alpha
+epochs_alpha_eeg = epochs_alpha.copy().pick_types(eeg=True)
+
+# Selecionar apenas os canais significativos que existem no EEG
+sig_chs_alpha_eeg = [ch for ch in sig_chs_alpha if ch in epochs_alpha_eeg.ch_names]
+
+if sig_chs_alpha_eeg:
+    # Criar evoked apenas com canais significativos EEG
+    evoked_sig_alpha = epochs_alpha_eeg[faces_keys].average().copy().pick_channels(sig_chs_alpha_eeg)
+    mean_alpha = evoked_sig_alpha.data.mean(axis=0)
+
+    # Plot
+    plt.figure(figsize=(8,4))
+    plt.plot(evoked_sig_alpha.times, mean_alpha, color='blue', label='Alpha EEG - canais significativos')
+    plt.axvline(0, color='k', linestyle='--')
+    plt.xlabel('Tempo (s)')
+    plt.ylabel('Amplitude (uV)')
+    plt.title('Resposta média EEG - Alpha (8-12 Hz)')
+    plt.legend()
+    plt.show()
+else:
+    print("Nenhum canal EEG significativo na banda Alpha.")
+
+
+
+#%%
+import numpy as np
+import pandas as pd
+from scipy.stats import ttest_rel
+import matplotlib.pyplot as plt
+import mne
+
+# --- Parâmetros de janelas ---
+tmin_win = -0.2
+tmax_win = 0.0
+tmin_win2 = 0.0
+tmax_win2 = 0.8
+alpha_fdr = 0.05
+
+# --- Bandas clássicas ---
+bands = {
+    'delta': (0.5, 4),
+    'theta': (4, 8),
+    'alpha': (8, 12),
+    'beta':  (12, 30),
+    'gamma': (30, 100)
+}
+
+# --- Função de FDR ---
+def bh_fdr(pvals, alpha=0.05):
+    p = np.asarray(pvals)
+    n = p.size
+    order = np.argsort(p)
+    sorted_p = p[order]
+    thresh = (np.arange(1, n+1) * alpha) / n
+    below = sorted_p <= thresh
+    if not np.any(below):
+        return np.zeros(n, dtype=bool)
+    max_idx = np.max(np.where(below)[0])
+    p_cutoff = sorted_p[max_idx]
+    return p <= p_cutoff
+
+# --- Função genérica para análise por banda ---
+def analyze_band(epochs, faces_keys, l_freq, h_freq, channel_type='eeg', band_name='band', tmin_win=-0.2, tmax_win=0.0, tmin_win2=0.0, tmax_win2=0.8, alpha_fdr=0.05):
+
+    # 1) filtrar dados
+    epochs_band = epochs.copy().filter(l_freq, h_freq, fir_design='firwin')
+    epochs_band = epochs_band.pick_types(eeg=True) if channel_type.lower() == 'eeg' else epochs_band.pick_types(meg='mag')
+
+    # 2) obter trials
+    trials = epochs_band[faces_keys].get_data()
+    times = epochs_band.times
+
+    # 3) índices das janelas
+    idx1 = np.where((times >= tmin_win) & (times < tmax_win))[0]
+    idx2 = np.where((times >= tmin_win2) & (times <= tmax_win2))[0]
+
+    if len(idx1) == 0 or len(idx2) == 0:
+        raise ValueError("Janelas temporais sem pontos de tempo válidos.")
+
+    # 4) média por janela
+    win1_mean = trials[:, :, idx1].mean(axis=2)
+    win2_mean = trials[:, :, idx2].mean(axis=2)
+
+    # 5) t-test emparelhado sensor-wise
+    tvals = np.zeros(win1_mean.shape[1])
+    pvals = np.ones(win1_mean.shape[1])
+    for ch in range(win1_mean.shape[1]):
+        t, p = ttest_rel(win2_mean[:, ch], win1_mean[:, ch])
+        tvals[ch] = t
+        pvals[ch] = p
+
+    # 6) FDR
+    sig_mask = bh_fdr(pvals, alpha=alpha_fdr)
+    sig_chs = [epochs_band.ch_names[i] for i, sig in enumerate(sig_mask) if sig]
+
+    # 7) Criar evoked médio apenas para canais significativos
+    if sig_chs:
+        evoked_sig = epochs_band[faces_keys].average().copy().pick_channels(sig_chs)
+        mean_data = evoked_sig.data.mean(axis=0)
+
+        # Plot resposta média
+        plt.figure(figsize=(8,4))
+        plt.plot(times, mean_data, label=f'{band_name.upper()} {channel_type.upper()} - canais significativos')
+        plt.axvline(0, color='k', linestyle='--')
+        plt.xlabel('Tempo (s)')
+        plt.ylabel('Amplitude (uV)' if channel_type.lower()=='eeg' else 'Amplitude (fT)')
+        plt.title(f'Resposta média {channel_type.upper()} - {band_name.upper()}')
+        plt.legend()
+        plt.show()
+    else:
+        print(f"Nenhum canal {channel_type.upper()} significativo na banda {band_name.upper()}.")
+        evoked_sig = None
+
+    # 8) Guardar CSV
+    df = pd.DataFrame({
+        'channel': epochs_band.ch_names,
+        'type': channel_type.upper(),
+        't_value': tvals,
+        'p_value': pvals,
+        'significant': sig_mask
+    })
+    csv_filename = f"{channel_type}_{band_name}_t_test.csv"
+    df.to_csv(csv_filename, index=False)
+    print(f"CSV guardado: {csv_filename}")
+
+    return evoked_sig, df
+
+# --- Rodar todas as bandas para EEG e MEG ---
+results = {}
+for band_name, (l_freq, h_freq) in bands.items():
+    print(f"\n=== Analisando banda {band_name.upper()} EEG ===")
+    evoked_eeg, df_eeg = analyze_band(epochs, faces_keys, l_freq, h_freq, channel_type='eeg', band_name=band_name,
+                                      tmin_win=tmin_win, tmax_win=tmax_win, tmin_win2=tmin_win2, tmax_win2=tmax_win2, alpha_fdr=alpha_fdr)
+    results[f'EEG_{band_name}'] = (evoked_eeg, df_eeg)
+
+    print(f"\n=== Analisando banda {band_name.upper()} MEG ===")
+    evoked_meg, df_meg = analyze_band(epochs, faces_keys, l_freq, h_freq, channel_type='meg', band_name=band_name,
+                                      tmin_win=tmin_win, tmax_win=tmax_win, tmin_win2=tmin_win2, tmax_win2=tmax_win2, alpha_fdr=alpha_fdr)
+    results[f'MEG_{band_name}'] = (evoked_meg, df_meg)
+
+
+
+
+
+
+
+
+
+
+#%%
+faces_keys = [k for k in epochs.event_id.keys() if k.startswith("faces")]
+faces_evoked = epochs[faces_keys].average()
+faces_evoked.plot_topo()
+
+faces_evoked.plot()
+
+#%%
+faces_evoked = evoked_dict["faces"] 
+fonts_evoked = evoked_dict["fonts"] 
+
+# --- 1) Calcular média de epochs para a categoria "faces" ---
+faces_epochs = epochs["faces"]  # assume que já tens category_epochs
+faces_evoked = faces_epochs.average()
+# --- 2) Plotar gráfico conjunto (ERPs + topografia) ---
+faces_evoked.plot_joint(picks="mag")
+# --- 3) Plotar mapas topográficos em tempos específicos ---
+# ajusta os tempos de acordo com o que queres visualizar
+faces_evoked.plot_topomap(times=[0.0, 0.08, 0.1, 0.12, 0.2], ch_type="mag")
+
+
+
+#%%
+evoked_diff = mne.combine_evoked([faces, fonts], weights=[1, -1])
+evoked_diff.pick(picks="mag").plot_topo(color="r", legend=False)
+
+
+
+#%%
+
+faces_evoked = evoked_dict["faces"] 
+fonts_evoked = evoked_dict["fonts"] 
+
+# --- 1) Calcular médias de duas categorias ---
+faces_evoked = epochs["faces"].average()
+fonts_evoked = epochs["fonts"].average()
+
+# --- 2) Combinar as evoked (diferença faces - objects) ---
+evoked_diff = mne.combine_evoked([faces_evoked, fonts_evoked], weights=[1, -1])
+# --- 3) Selecionar apenas canais magnetômetros e plotar topografia ---
+evoked_diff.pick(picks="mag").plot_topo(color="r", legend=False)
+# %%
