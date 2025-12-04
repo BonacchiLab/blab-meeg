@@ -1,8 +1,14 @@
-import mne
 from pathlib import Path
-from mne.preprocessing import find_bad_channels_maxwell, maxwell_filter, ICA
 
+import mne
+from mne.preprocessing import ICA, find_bad_channels_maxwell, maxwell_filter
 
+# TODO: Add a history of preproc steps
+# For bad channel detection we need a history of found bad channels
+# if they were already computed just introduce the already computed ones
+# For the maxwell filter we need a history of applied filter parameters and the resulting raw file
+# Same for notch filter
+# For ICA we need a history of ICA components and the resulting raw file
 auto_bad_channels_history = {"CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"]}
 
 

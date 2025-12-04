@@ -1,21 +1,21 @@
-# %%
-# Import Room
-import blab_meeg.preproc as pp
-import mne
-import matplotlib.pyplot as plt
-from pathlib import Path
-from mne.preprocessing import ICA
+# %% Import Room
 
+from pathlib import Path
+
+import mne
+
+import blab_meeg.preproc as pp
+import blab_meeg.io as bio
 
 # %% Define paths and files
 base_dir = Path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE")
-experiment = "EXP1"
-sname = "CA124"
-output_dir = Path(f"D:/COGITATE/PREPROC/COG_MEEG_EXP1_RELEASE/{sname}_preproc")
-# Insert files
-raw_file = base_dir / sname / f"{sname}_{experiment}_MEEG" / f"{sname}_MEEG_1_DurR1.fif"
-cal_file = base_dir / "metadata" / "calibration_crosstalk_coreg" / "CA124_ses-1_acq-calibration_meg.dat"
-ct_file = base_dir / "metadata" / "calibration_crosstalk_coreg" / "CA124_ses-1_acq-crosstalk_meg.fif"
+output_base_dir = bio.get_output_base_dir(base_dir)
+subjects = bio.list_subjects(base_dir)
+sname = subjects[0]  # "CA124"
+meeg_dur_files = bio.get_dur_files_from_sname(sname, base_dir)
+
+raw_file = meeg_dur_files[0]  # f"{sname}_MEEG_1_DurR1.fif"
+cal_file, ct_file, coreg_file = bio.get_subject_calibration_crosstalk_coreg_files(sname, base_dir)
 
 # %% Load Raw Data
 raw = mne.io.read_raw(raw_file, preload=True)
@@ -31,7 +31,9 @@ raw = pp.maxwell_filtering(raw, cal_file=cal_file, ct_file=ct_file)
 
 # %% Notch filter --> electrical noise removal
 
-raw = pp.notch_filtering(raw, freqs=[50, 100, 150, 200, 250, 300], phase="zero", fir_design="firwin")
+raw = pp.notch_filtering(
+    raw, freqs=[50, 100, 150, 200, 250, 300], phase="zero", fir_design="firwin"
+)
 
 
 # %% ICA to remove EOG and ECG artifacts
@@ -51,5 +53,5 @@ raw_meg_eeg_clean = pp.ica_apply(ica_eeg, raw_meg_clean)
 # Final cleaned raw data
 raw = raw_meg_eeg_clean
 # %% Save the preprocessed data
-output_file = output_dir / sname / f"{sname}_{experiment}_MEEG" / f"{sname}_MEEG_1_preproc_raw.fif"
-pp.save_raw(raw, output_file)
+# TODO: Save raw should be moved to IO and use the metadata os the raw file to define output path
+# pp.save_raw(raw, output_file)
