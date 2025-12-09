@@ -35,7 +35,7 @@ def auto_detect_bad_channels(
     print("Noisy channels:", auto_noisy)
     print("Flat channels :", auto_flat)
     print("Scores        :", auto_scores)
-    # save to json history
+    # TODO: save to json history
 
     raw.info["bads"].extend(auto_noisy + auto_flat)
 
@@ -166,10 +166,3 @@ def ica_find_and_exclude_bads(
 def ica_apply(ica: ICA, raw: mne.io.Raw) -> mne.io.Raw:
     raw_clean = ica.apply(raw)
     return raw_clean
-
-
-def save_raw(raw: mne.io.Raw, output_path: Path | str) -> None:
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    raw.save(output_path, overwrite=True)
-    print(f"✔ Raw File Saved in:\n{output_path}\n")

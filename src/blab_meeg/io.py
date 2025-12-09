@@ -146,8 +146,53 @@ def list_subjects(base_dir: Path | str) -> list[str]:
         A list of subject names in the given base directory.
     """
     base_dir = Path(base_dir)
-    snames = [f.name for f in base_dir.iterdir() if f.is_dir()]
+    snames = [f.name for f in base_dir.iterdir() if f.is_dir() and f.name != "metadata"]
     return snames
+
+
+def get_dur_output_file_name(dur_input_file: Path) -> Path:
+    """
+    Returns the path for the output file of a given dur input file.
+
+    Parameters
+    ----------
+    dur_input_file : Path
+        The path to the dur input file.
+
+    Returns
+    -------
+    Path
+        The path to the output file of the given dur input file.
+    """
+    dur_input_file = Path(dur_input_file)
+    out = []
+    for x in dur_input_file.parts:
+        if "_RELEASE" in x:
+            out.append(x + "_PREPROC")
+        else:
+            out.append(x)
+    return Path().joinpath(*out)
+
+
+def save_raw(raw: mne.io.Raw, output_path: Path | str) -> None:
+    """
+    Saves a preprocessed raw file to disk.
+
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        The preprocessed raw file to save.
+    output_path : Path | str
+        The path to save the preprocessed raw file to.
+
+    Returns
+    -------
+    None
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    raw.save(output_path, overwrite=True)
+    print(f"✔ Raw File Saved in:\n{output_path}\n")
 
 
 def get_base_dir_from_raw(raw: mne.io.Raw) -> Path: ...
