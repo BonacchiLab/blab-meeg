@@ -90,6 +90,7 @@ def get_dur_files_from_sname(sname: str, base_dir: Path) -> list[Path]:
     for x in subj_dir.rglob("*Dur*"):
         if x.is_file() and x.suffix == ".fif":
             dur_files.append(x)
+    dur_files.sort()
     return dur_files
 
 

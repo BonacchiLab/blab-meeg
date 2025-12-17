@@ -8,7 +8,7 @@ import blab_meeg.preproc as pp
 import blab_meeg.io as bio
 
 # %% Define paths and files
-base_dir = Path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE")
+base_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
 
 output_base_dir = bio.get_output_base_dir(base_dir)
 subjects = bio.list_subjects(base_dir)

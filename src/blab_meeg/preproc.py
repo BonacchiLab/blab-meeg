@@ -9,7 +9,9 @@ from mne.preprocessing import ICA, find_bad_channels_maxwell, maxwell_filter
 # For the maxwell filter we need a history of applied filter parameters and the resulting raw file
 # Same for notch filter
 # For ICA we need a history of ICA components and the resulting raw file
-auto_bad_channels_history = {"CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"]}
+auto_bad_channels_history = {"CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"],
+                             "CB003_MEEG_1_DurR5-1.fif": ['MEG2033', 'MEG2321', 'MEG2031']
+                             }
 
 
 def auto_detect_bad_channels(
