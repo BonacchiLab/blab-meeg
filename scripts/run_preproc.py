@@ -59,3 +59,5 @@ raw = raw_meg_eeg_clean
 output_file = bio.get_dur_output_file_name(raw_file)
 # SAVE THE FILE
 # bio.save_raw(raw, output_file)
+
+# %%

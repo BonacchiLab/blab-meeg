@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 
+import blab_meeg.io as bio
 import mne
 from mne.preprocessing import ICA, find_bad_channels_maxwell, maxwell_filter
 
@@ -14,6 +16,40 @@ auto_bad_channels_history = {"CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"],
                              }
 
 
+def get_preproc_logs_dir_from_raw(raw: mne.io.Raw) -> Path | None:
+    """ """
+    fpath = raw.filenames[0]
+    fpath = fpath.absolute()
+    if fpath.is_file():
+        base_dir = fpath.parent.parent.parent
+        sname = fpath.parent.parent.name
+        output_subj_dir = bio.get_output_subj_dir(base_dir, sname)
+        preproc_logs_dir = output_subj_dir / "preproc_logs"
+        preproc_logs_dir.mkdir(parents=True, exist_ok=True)
+        return preproc_logs_dir
+    print(f"Path {fpath} is not a file")
+    return
+
+
+def load_bad_channels_from_log(raw: mne.io.Raw) -> None:
+    history_file = get_preproc_logs_dir_from_raw(raw) / "bad_channels_history.json"
+    bad_channels_history = json.load(history_file)
+    return bad_channels_history
+
+
+def save_bad_channels_to_log(raw: mne.io.Raw) -> None:
+    bad_channels_history = load_bad_channels_from_log(raw)
+    fpath = raw.filenames[0]
+    fpath = fpath.absolute()
+    history_file = get_preproc_logs_dir_from_raw(raw) / "bad_channels_history.json"
+    history_file[fpath.name] = raw.info["bads"]
+    json.dump(bad_channels_history, history_file, indent=4)
+    return
+
+
+#
+
+
 def auto_detect_bad_channels(
     raw: mne.io.Raw,
     cal_file: Path,
@@ -24,9 +60,9 @@ def auto_detect_bad_channels(
     # If file exists return bad channels from history
     # Else compute bad channels and save to history
     # Add a force flag to recompute bad channels if needed
+
     cal_file = Path(cal_file)
     ct_file = Path(ct_file)
-    raw.info["bads"] = []
     auto_noisy, auto_flat, auto_scores = find_bad_channels_maxwell(
         raw.copy(),
         calibration=cal_file,
@@ -40,6 +76,10 @@ def auto_detect_bad_channels(
     # TODO: save to json history
 
     raw.info["bads"].extend(auto_noisy + auto_flat)
+
+    raw_fname = raw.filenames[0]
+    # get_subj_log_dir_from_fif_file_path(raw_fname).mkdir(parents=True, exist_ok=True)
+    auto_bad_channels_history[raw_fname] = raw.info["bads"]
 
     return raw
 

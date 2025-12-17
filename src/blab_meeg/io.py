@@ -14,6 +14,7 @@ from typing import Any
 import mne
 from mne.utils.misc import files
 
+
 # Describe raw base dir folder using globs, find subject names, modalities and relevant files
 
 
