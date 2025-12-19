@@ -427,3 +427,10 @@ if __name__ == "__main__":
     print(bd)
 
     print(bd.get_output_path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE/CA124_MEEG_1_DurR1.fif"))
+    # TODO: Swap all asserts to logs, implement logs for whole project, <is_>functions should not
+    # raise errors just return False if condition is not true, assert messages should be outputted
+    # to a log, however logging is not implemented and interfaces with the preproc logger, have to
+    # look into this, i.e. try to be smart and implement a preproc logger and a cogitate logger
+    # or manually implement a json file to store preproc logs and implement a logger for the whole
+    # project in any case implement a logger for the whole project
+    # TODO: Add tests
