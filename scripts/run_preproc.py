@@ -9,6 +9,8 @@ import blab_meeg.io as bio
 
 # %% Define paths and files
 base_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
+base_dir = Path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE/")
+
 
 output_base_dir = bio.get_output_base_dir(base_dir)
 subjects = bio.list_subjects(base_dir)
@@ -21,6 +23,7 @@ raw_file = meeg_dur_files[0]  # f"{sname}_MEEG_1_DurR1.fif"
 
 # %% Load Raw Data
 raw = mne.io.read_raw(raw_file, preload=True)
+output_base_dir.joinpath(raw.filenames[0].relative_to(base_dir))
 
 # %% Remove Bad Channels
 

@@ -11,9 +11,10 @@ from mne.preprocessing import ICA, find_bad_channels_maxwell, maxwell_filter
 # For the maxwell filter we need a history of applied filter parameters and the resulting raw file
 # Same for notch filter
 # For ICA we need a history of ICA components and the resulting raw file
-auto_bad_channels_history = {"CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"],
-                             "CB003_MEEG_1_DurR5-1.fif": ['MEG2033', 'MEG2321', 'MEG2031']
-                             }
+auto_bad_channels_history = {
+    "CA124_MEEG_1_DurR1.fif": ["MEG1043", "MEG2632"],
+    "CB003_MEEG_1_DurR5-1.fif": ["MEG2033", "MEG2321", "MEG2031"],
+}
 
 
 def get_preproc_logs_dir_from_raw(raw: mne.io.Raw) -> Path | None:
@@ -31,13 +32,13 @@ def get_preproc_logs_dir_from_raw(raw: mne.io.Raw) -> Path | None:
     return
 
 
-def load_bad_channels_from_log(raw: mne.io.Raw) -> None:
+def load_bads_from_log(raw: mne.io.Raw) -> None:
     history_file = get_preproc_logs_dir_from_raw(raw) / "bad_channels_history.json"
     bad_channels_history = json.load(history_file)
     return bad_channels_history
 
 
-def save_bad_channels_to_log(raw: mne.io.Raw) -> None:
+def save_bads_to_log(raw: mne.io.Raw) -> None:
     bad_channels_history = load_bad_channels_from_log(raw)
     fpath = raw.filenames[0]
     fpath = fpath.absolute()
