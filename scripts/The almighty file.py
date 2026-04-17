@@ -1,22 +1,13 @@
 #The almighty file 
-
-
 from pathlib import Path
-from paths import create_output_folder 
+from paths import create_output_folders
+from step00_badch_maxwell import run_badch_maxwell
+from step01_prep import run_prep_pipeline
+from step02_annotations import run_artifact_annotations
+from step03_ica import run_train_ica, run_apply_ica
 
-"""
-from 00_badch_maxwell import run_badch_maxwell
-from 01_prep_pipeline import run_prep_pipeline
-from 02_artifact_annotations import run_artifact_annotations
-from 03_ica import run_ica
-from 04_epochs import run_preprocess_epochs
-"""
-import run_badch_maxwell
-import run_prep_pipeline
-import run_artifact_annotations
-import run_ica
-import run_preprocess_epochs
 
+#TODO: caaaaaaaaaaso de erro tens isto "del raw" --> # the god weapon 
 
 inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
 subject = "CA124"
@@ -44,41 +35,107 @@ dur_files = [x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR"
 cal_file = fr"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-calibration_meg.dat"
 ct_file = fr"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-crosstalk_meg.fif"
 
-raws_sss = run_badch_maxwell(
-    file_paths=file_paths,
-    cal_file=cal_file,
-    ct_file=ct_file,
-    out_paths=out_paths,
-    subject=subject,
-    names=names,
-)
+# master_pipeline.py
 
-raws_prepped = run_prep_pipeline(
-    file_paths=file_paths,
-    out_paths=out_paths,
-    subject=subject,
-    names=names,
-)
 
-raws_annotated = run_artifact_annotations(
-    file_paths=file_paths,
-    out_paths=out_paths,
-    subject=subject,
-    names=names,
-)
+# IMPORTS DAS TUAS FUNÇÕES
 
-raw_concatenated = run_ica(
-    file_paths=file_paths,
-    out_paths=out_paths,
-    subject=subject,
-    names=names,
-)
+def run_full_pipeline(subject):
 
-epochs_clean = run_preprocess_epochs(
-    file_paths=file_paths[0],
-    out_paths=out_paths,
-    subject=subject,
-)
+    # -------------------------
+    # PATHS
+    # -------------------------
+    inroot = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+    out_paths = create_output_folders(subject=subject, inroot=inroot)
+
+    sub_indir = inroot / subject
+    sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
+
+    names = [f"dur{i}" for i in range(1, 6)]
+
+    # -------------------------
+    # FILES RAW
+    # -------------------------
+    raw_files = sorted([x for x in sub_dur_indir.glob("*DurR*.fif")])
+
+    # -------------------------
+    # STEP 00: Maxwell
+    # -------------------------
+    raws_sss = run_badch_maxwell(
+        file_paths=raw_files,
+        cal_file = sub_indir / "metadata/calibration_crosstalk_coreg" / f"{subject}_ses-1_acq-calibration_meg.dat",
+        ct_file  = sub_indir / "metadata/calibration_crosstalk_coreg" / f"{subject}_ses-1_acq-crosstalk_meg.fif",
+        out_paths=out_paths,
+        subject=subject,
+        names=names,
+    )
+
+    sss_files = [
+        out_paths["00_badch_maxwell"] / f"{subject}_badch_maxwell_{n}.fif"
+        for n in names
+    ]
+
+    # -------------------------
+    # STEP 01: PREP
+    # -------------------------
+    raws_clean = run_prep_pipeline(
+        file_paths=sss_files,
+        out_paths=out_paths,
+        subject=subject,
+        names=names,
+    )
+
+    prep_files = [
+        out_paths["01_prep_pipeline"] / f"{subject}_01_prep_pipeline_{n}.fif"
+        for n in names
+    ]
+
+    # -------------------------
+    # STEP 02: ANNOTATIONS
+    # -------------------------
+    raws_annotated = run_artifact_annotations(
+        file_paths=prep_files,
+        out_paths=out_paths,
+        subject=subject,
+        names=names,
+    )
+
+    annot_files = [
+        out_paths["02_artifact_annotations"] / f"{subject}_02_artifact_annotations_{n}.fif"
+        for n in names
+    ]
+
+    # -------------------------
+    # STEP 03: ICA (train)
+    # -------------------------
+    ica_meg, ica_eeg = run_train_ica(
+        file_paths=annot_files,
+        out_paths=out_paths,
+        subject=subject,
+        names=names,
+    )
+
+    print("\n👉 Agora corre manualmente o inspect_ica antes de aplicar.")
+
+    input("Press Enter depois de escolheres componentes...")
+
+    # -------------------------
+    # STEP 04: ICA APPLY
+    # -------------------------
+    raw_final = run_apply_ica(
+        file_paths=annot_files,
+        out_paths=out_paths,
+        subject=subject,
+        names=names,
+    )
+
+    print("Pipeline completo.")
+
+    return raw_final
+
+
+if __name__ == "__main__":
+    run_full_pipeline("CA124")
 
 
 
@@ -147,3 +204,9 @@ epochs_clean = run_preprocess_epochs(
 #*#*#*#*#*#*#*#*#*#*#*#*#*#
 #*#1#*#Analise#*#daquilo#*#
 #*#*#*#*#*#*#*#*#*#*#*#*#*#
+
+#*#*#*#*#*#*#*#*#*#*#*#*#*#
+#   1) Analise daquilo    #
+#*#*#*#*#*#*#*#*#*#*#*#*#*#
+
+#-->

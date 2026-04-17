@@ -1,18 +1,33 @@
-#02_artifact_annotations
+# ==========================================================
+# 02. Artifact annotations (muscle, blinks, breaks)
+# ==========================================================
+# This step detects and annotates:
+# - Muscle artifacts (high-frequency noise, MEG-based)
+# - Eye blinks (EOG events)
+# - Break periods (no task activity)
+#
+# Output:
+# - Annotated raw objects
+# - QC report with summary statistics and visualizations
 
 
 #%%
+#*#*#*#*#*#*#
+# 1) Setup  #
+#*#*#*#*#*#*#
+
 import mne
 from mne.preprocessing import annotate_muscle_zscore
 from mne import Annotations
 from mne.report import Report
 from pathlib import Path
 from paths import create_output_folders
-
+import pandas as pd
 import matplotlib.pyplot as plt
 
-report = Report(title="Artifact Annotation Report")
-
+#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# 2) Artifact annotation function #
+#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 
 def run_artifact_annotations(
     file_paths,
@@ -21,33 +36,42 @@ def run_artifact_annotations(
     names=None,
 ):
 
-    # ------------------------------------------------------------------
-    # 1. Carregar dados e preparar estrutura para o relatório
-    # ------------------------------------------------------------------
-    report = mne.Report(title=f"{subject} - Prep Pipeline")
+    #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+    # 2.1) Load data and initialize report  #
+    #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 
-    raws_prepped = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
+    report = mne.Report(title=f"{subject} - Artifact annotations")
+
+    raws_clean = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
     
     if names is None:
         names = [f"run_{i+1}" for i in range(len(file_paths))]
     
     
-    # ------------------------------------------------------------------
-    # 2. The annotations
-    # ------------------------------------------------------------------
+    #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+    # 2.2) Artifact detection per run   #
+    #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+    # For each run, detects:
+    # - Muscle artifacts (high-frequency noise)
+    # - Blinks (EOG peaks)
+    # - Break periods (no events)
     
     raws_annotated = []
+    all_dfs = []
+    all_scores = []
+    all_raw_muscle = []
 
-
-    for i, raw_prepped in enumerate(raws_prepped):
+    for i, raw_clean in enumerate(raws_clean):
 
         run_name = names[i]
-        print(f"Processing {run_name}...")
 
-        # =========================
-        # 💪 MUSCLE ARTIFACTS
-        # =========================
-        raw_muscle = raw_prepped.copy().notch_filter([50, 100])
+        #*#*#*#*#*#*#*#*#
+        # 2.2.1) Muscle #
+        #*#*#*#*#*#*#*#*#
+        # Detects high-frequency activity (110–140 Hz),
+        # typical of muscle contractions (e.g. jaw tension).
+
+        raw_muscle = raw_clean.copy().notch_filter([50, 100])
 
         annot_muscle, scores = annotate_muscle_zscore(
             raw_muscle,
@@ -56,70 +80,122 @@ def run_artifact_annotations(
             min_length_good=0.3,
             filter_freq=[110, 140],
         )
-    
-    
-        # =========================
-        # 👁️ BLINKS (EOG)
-        # =========================
-        annot_blink = None
+        all_scores.append(scores)
+        all_raw_muscle.append(raw_muscle)
+        
+        
+        #*#*#*#*#*#*#*#*#
+        # 2.2.2) Blinks #
+        #*#*#*#*#*#*#*#*#
+        # Detects eye blinks using EOG channels or proxies.
+        # Creates fixed-duration annotations around each blink.
 
-        try:
-            eog_events = mne.preprocessing.find_eog_events(raw_prepped)
+        eog_events = mne.preprocessing.find_eog_events(raw_clean)
 
-            onsets = (
-                (eog_events[:, 0] - raw_prepped.first_samp) / raw_prepped.info["sfreq"]
-                - 0.25
-            )
-            durations = [0.5] * len(eog_events)
-            descriptions = ["Blink"] * len(eog_events)
+        onsets = eog_events[:, 0] / raw_clean.info["sfreq"] - 0.25
+        durations = [0.5] * len(eog_events)
+        descriptions = ["Blink"] * len(eog_events)
 
-            annot_blink = Annotations(
-                onsets,
-                durations,
-                descriptions,
-                orig_time=raw_prepped.info["meas_date"],
-            )
-
-        except Exception as e:
-            print(f"No EOG found in {run_name}: {e}")
-
-        # =========================
-        # 🧱 JUNTAR ANNOTATIONS
-        # =========================
-        if annot_blink is not None:
-            annot_all = annot_muscle + annot_blink
-        else:
-            annot_all = annot_muscle
-
-        # Corrigir timing (importante!)
-        annot_all = mne.Annotations(
-            onset=annot_all.onset + raw_prepped._first_time,
-            duration=annot_all.duration,
-            description=annot_all.description,
-            orig_time=raw_prepped.info["meas_date"],
+        annot_blink = Annotations(
+            onsets,
+            durations,
+            descriptions,
+            orig_time=raw_clean.info["meas_date"],
         )
 
-        raw_annotated = raw_prepped.copy()
-        raw_annotated.set_annotations(raw_prepped.annotations + annot_all)
+
+        #*#*#*#*#*#*#*#*#
+        # 2.2.3) Breaks #
+        #*#*#*#*#*#*#*#*#        
+        # Identifies long periods without events, interpreted
+        # as pauses between trials or blocks.
+        
+        events = mne.find_events(
+            raw_clean,
+            stim_channel="STI101",
+            shortest_event=1,
+            min_duration=0.001,
+        )
+
+        annot_break = mne.preprocessing.annotate_break(
+            raw=raw_clean,
+            events=events,
+            min_break_duration=5.0,
+            t_start_after_previous=1.5,
+            t_stop_before_next=1.5,
+        )
+
+
+        #*#*#*#*#*#*#*#*#*#*#*#*#*#
+        # 2.3) Merge annotations  #
+        #*#*#*#*#*#*#*#*#*#*#*#*#*#
+        # Combines all detected artifacts into a single
+        # annotation object and attaches it to the data.
+
+        annot_all = annot_muscle + annot_blink + annot_break
+
+        raw_annotated = raw_clean.copy()
+        raw_annotated.set_annotations(annot_all)
 
         raws_annotated.append(raw_annotated)
         
         
-        # ========================#
-        # =======Data Report======#
-        # ========================#        
-    for i, (raw_annotated) in enumerate(raws_annotated):
+    #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+    # 2.4) Quality control report generation  #
+    #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+    # Creates a detailed report including:
+    # - Percentage annotated
+    # - Muscle score plot
+    # - Full raw visualization (butterfly plot)   
+    # - Csv with annotations times 
+
+    for i, raw_annotated in enumerate(raws_annotated):
         run_name = names[i]
+        scores = all_scores[i]
+        raw_muscle = all_raw_muscle[i]
+        total_duration = raw_annotated.times[-1] 
+
+
+        # Percentage annotated
+        annot_duration = sum(raw_annotated.annotations.duration)
+        percent_bad = (annot_duration / total_duration) * 100
+
+        durations = {
+            "muscle": 0,
+            "blink": 0,
+            "break": 0,
+        }
+
+        for desc, dur in zip(raw_annotated.annotations.description,
+                            raw_annotated.annotations.duration):
+            
+            if "BAD_muscle" in desc:
+                durations["muscle"] += dur
+            elif "Blink" in desc:
+                durations["blink"] += dur
+            elif "BAD_break" in desc:
+                durations["break"] += dur
+
+        percentages = {
+            k: (v / total_duration) * 100
+            for k, v in durations.items()
+        }
+
+        html = f"""
+        <h2>Data Quality Summary</h2>
+
+        <p><b>Total annotated:</b> {percent_bad:.2f}%</p>
+
+        <ul>
+            <li><b>Muscle:</b> {percentages['muscle']:.2f}% ({durations['muscle']:.1f}s)</li>
+            <li><b>Blink:</b> {percentages['blink']:.2f}% ({durations['blink']:.1f}s)</li>
+            <li><b>Break:</b> {percentages['break']:.2f}% ({durations['break']:.1f}s)</li>
+        </ul>"""
         
-        fig_mag_anoted  = raw_annotated.copy().pick("mag").plot(show=False)
-        fig_grad_anoted = raw_annotated.copy().pick("grad").plot(show=False)
-        fig_eeg_anoted  = raw_annotated.copy().pick("eeg").plot(show=False)
+        report.add_html(html, title=f"Data quality - {run_name}", section=run_name)
 
-        report.add_figure(fig_mag_anoted,  title=f"mag annotated - {run_name}")
-        report.add_figure(fig_grad_anoted, title=f"grad annotated - {run_name}")
-        report.add_figure(fig_eeg_anoted,  title=f"eeg annotated - {run_name}")
 
-        #plot dos scores dos músculos
+        # Muscle score plot
         fig_scores, ax = plt.subplots()
         min_len = min(len(raw_muscle.times), len(scores))
         ax.plot(raw_muscle.times[:min_len], scores[:min_len])
@@ -129,17 +205,53 @@ def run_artifact_annotations(
         xlabel="Time (s)",
         ylabel="Z-score"
         )
-        report.add_figure(fig_scores, title=f"Muscle scores - {run_name}")
+        
+        report.add_figure(fig_scores, title=f"Muscle scores - {run_name}, section=run_name")
+        
         plt.close(fig_scores)
 
 
-        # =========================
-        # 10) SAVE DATA
-        # =========================
+        #Full signal visualization
+        fig_all = raw_annotated.copy().plot(duration=raw_annotated.times[-1], butterfly=True, show=False)
+        
+        report.add_figure(fig_all, title="All channels", section=run_name)
+        
+        plt.close(fig_all)
+
+
+        #Csv with annotations times
+        rows = []
+
+        for onset, duration, desc in zip(
+            raw_annotated.annotations.onset,
+            raw_annotated.annotations.duration,
+            raw_annotated.annotations.description,
+        ):
+               
+            rows.append({
+                "run": run_name,
+                "description": desc,
+                "onset_sec": float(onset),
+                "duration_sec": float(duration),
+                "offset_sec": float(onset + duration),
+            })
+
+        all_dfs.append(pd.DataFrame(rows))  
+        
+
+    #*#*#*#*#*#*#*#*#*#*#
+    # 2.5) Save outputs #
+    #*#*#*#*#*#*#*#*#*#*#
+    # - Raws
+    # - Csv
+    # - Report
+
     for i, raw_annotated in enumerate(raws_annotated):
         file_path = out_paths["02_artifact_annotations"] / f"{subject}_02_artifact_annotations_{names[i]}.fif"
         raw_annotated.save(file_path, overwrite=True)
-
+    
+    df_final = pd.concat(all_dfs, ignore_index=True)
+    df_final.to_csv(out_paths["docs"] / "02_artifact_annotations_times.csv", index=False)
 
     report.save(out_paths["docs"] / "02_artifact_annotations_report.html", overwrite=True)
 
