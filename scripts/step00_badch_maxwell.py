@@ -20,7 +20,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 from mne.report import Report
-
+import gc
 
 #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) BadChannels and Maxwell function #
@@ -42,7 +42,7 @@ def run_badch_maxwell(
 
     report = mne.Report(title=f"{subject} - Bad channels + Maxwell")
 
-    raws = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
+    raws = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
     
     if names is None:
         names = [f"run_{i+1}" for i in range(len(file_paths))]
@@ -133,7 +133,7 @@ def run_badch_maxwell(
         run_name = names[i]
 
         # Full raw visualization (butterfly plot)
-        fig_all = raw.copy().plot(duration=raw.times[-1], butterfly=True, show=False)
+        fig_all = raw.plot(duration=raw.times[-1], butterfly=True, show=False)
         report.add_figure(fig_all, title="All channels", section=run_name)
         plt.close(fig_all)
                 
@@ -253,8 +253,8 @@ def run_badch_maxwell(
 
 
         # Global MEG signal comparison
-        fig_meg_raw = raw.copy().pick(["meg"]).plot(duration=10, butterfly=True)
-        fig_meg_sss = raw_sss.copy().pick(["meg"]).plot(duration=10, butterfly=True)
+        fig_meg_raw = raw.copy().pick(["meg"]).plot(duration=10, butterfly=True, show=True)
+        fig_meg_sss = raw_sss.copy().pick(["meg"]).plot(duration=10, butterfly=True, show=True)
         report.add_figure(fig_meg_raw, title="Meg Raw", section=run_name)
         report.add_figure(fig_meg_sss, title="Meg after Maxwell", section=run_name)
         plt.close(fig_meg_raw)
@@ -321,7 +321,14 @@ def run_badch_maxwell(
     with open(out_paths["docs"] / "00_badch_maxwell_info.json", "w") as f:
         json.dump(all_preproc_info, f, indent=4)
 
-    return raws_sss
+    
+    
+    plt.close('all')
+
+    del raws, raws_badch, raws_sss
+
+    gc.collect()
+    #return raws_sss
 
 
 
@@ -338,8 +345,6 @@ if __name__ == "__main__":
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
     out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
-
-
 
     outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
 

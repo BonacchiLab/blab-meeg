@@ -4,7 +4,7 @@ import json
 from mne.preprocessing import read_ica
 from pathlib import Path
 
-subject = "CA124"
+subject = "CA140"
 
 base = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT")
 

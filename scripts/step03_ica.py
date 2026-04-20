@@ -1,8 +1,5 @@
 #03_ica
 
-
-
-
 #%%
 import mne
 from mne.preprocessing import ICA
@@ -11,7 +8,7 @@ from paths import create_output_folders
 import json
 from mne.preprocessing import read_ica
 import matplotlib.pyplot as plt
-
+import gc
 
 def run_train_ica(
     file_paths,
@@ -125,8 +122,13 @@ def run_train_ica(
 
     report.save(out_paths["docs"] / "03_ica_report.html", overwrite=True)
 
+    plt.close('all')
 
-    return ica_meg, ica_eeg
+    del ica_meg, ica_eeg
+
+    gc.collect()
+
+    #return ica_meg, ica_eeg
 
 
 
@@ -238,7 +240,15 @@ def run_apply_ica(
         overwrite=True
     )
 
-    return raw_concat
+
+
+    plt.close('all')
+
+    del raws, ica_meg, ica_eeg, raw_concat
+
+    gc.collect()
+
+    #return raw_concat
 
 
 

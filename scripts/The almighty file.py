@@ -1,16 +1,17 @@
+
 #The almighty file 
 from pathlib import Path
 from paths import create_output_folders
 from step00_badch_maxwell import run_badch_maxwell
-from step01_prep import run_prep_pipeline
-from step02_annotations import run_artifact_annotations
+from step01_prep_pipeline import run_prep_pipeline
+from step02_artifact_annotations import run_artifact_annotations
 from step03_ica import run_train_ica, run_apply_ica
 
 
 #TODO: caaaaaaaaaaso de erro tens isto "del raw" --> # the god weapon 
 
 inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-subject = "CA124"
+subject = "CA140"
 
 sub_indir = Path(fr"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
 sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
@@ -135,7 +136,7 @@ def run_full_pipeline(subject):
 
 
 if __name__ == "__main__":
-    run_full_pipeline("CA124")
+    run_full_pipeline("CA140")
 
 
 
@@ -210,3 +211,4 @@ if __name__ == "__main__":
 #*#*#*#*#*#*#*#*#*#*#*#*#*#
 
 #-->
+# %%

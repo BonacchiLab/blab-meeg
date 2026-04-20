@@ -24,6 +24,7 @@ from pathlib import Path
 from paths import create_output_folders
 import pandas as pd
 import matplotlib.pyplot as plt
+import gc
 
 #*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Artifact annotation function #
@@ -42,7 +43,7 @@ def run_artifact_annotations(
 
     report = mne.Report(title=f"{subject} - Artifact annotations")
 
-    raws_clean = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
+    raws_clean = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
     
     if names is None:
         names = [f"run_{i+1}" for i in range(len(file_paths))]
@@ -254,8 +255,14 @@ def run_artifact_annotations(
     df_final.to_csv(out_paths["docs"] / "02_artifact_annotations_times.csv", index=False)
 
     report.save(out_paths["docs"] / "02_artifact_annotations_report.html", overwrite=True)
+    
+    plt.close('all')
 
-    return raws_annotated
+    del raws_clean, raws_annotated
+
+    gc.collect()
+    
+    #return raws_annotated
 
 
 

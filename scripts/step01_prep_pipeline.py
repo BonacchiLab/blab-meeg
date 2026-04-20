@@ -22,7 +22,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 from mne.report import Report
-
+import gc
 
 #*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Prep Pipeline function #
@@ -43,7 +43,7 @@ def run_prep_pipeline(
 
     report = mne.Report(title=f"{subject} - Prep Pipeline")
 
-    raws_sss = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
+    raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
     
     if names is None:
         names = [f"run_{i+1}" for i in range(len(file_paths))]
@@ -266,7 +266,14 @@ def run_prep_pipeline(
         json.dump(prep_info, f, indent=4)
 
 
-    return raws_clean 
+
+    plt.close('all')
+
+    del raws_sss, raws_prep, raws_prepped, raws_clean
+
+    gc.collect()
+    
+    #return raws_clean 
 
 
 
