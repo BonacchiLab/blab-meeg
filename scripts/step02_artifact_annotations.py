@@ -43,7 +43,7 @@ def run_artifact_annotations(
 
     report = mne.Report(title=f"{subject} - Artifact annotations")
 
-    raws_clean = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
+    raws_clean = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
     
     if names is None:
         names = [f"run_{i+1}" for i in range(len(file_paths))]
@@ -72,7 +72,10 @@ def run_artifact_annotations(
         # Detects high-frequency activity (110–140 Hz),
         # typical of muscle contractions (e.g. jaw tension).
 
-        raw_muscle = raw_clean.copy().notch_filter([50, 100])
+        raw_muscle = raw_clean.copy()
+        raw_muscle.load_data()
+        raw_muscle.notch_filter([50, 100])
+
 
         annot_muscle, scores = annotate_muscle_zscore(
             raw_muscle,
@@ -213,11 +216,11 @@ def run_artifact_annotations(
 
 
         #Full signal visualization
-        fig_all = raw_annotated.copy().plot(duration=raw_annotated.times[-1], butterfly=True, show=False)
+        #fig_all = raw_annotated.copy().plot(duration=raw_annotated.times[-1], butterfly=True, show=False)
         
-        report.add_figure(fig_all, title="All channels", section=run_name)
+        #report.add_figure(fig_all, title="All channels", section=run_name)
         
-        plt.close(fig_all)
+        #plt.close(fig_all)
 
 
         #Csv with annotations times

@@ -11,7 +11,7 @@ base = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT")
 raw_path = base / subject / f"{subject}_Preproc/02_artifact_annotations/{subject}_02_artifact_annotations_dur1.fif"
 ica_meg_path = base / subject / f"{subject}_Preproc/03_ica/{subject}_ica_meg.fif"
 ica_eeg_path = base / subject / f"{subject}_Preproc/03_ica/{subject}_ica_eeg.fif"
-sugg_path = base / subject / f"{subject}_Preproc/docs/{subject}_ica_suggestions.json"
+sugg_path = base / subject / f"{subject}_Docs/{subject}_ica_suggestions.json"
 
 # LOAD
 raw = mne.io.read_raw_fif(raw_path, preload=True)

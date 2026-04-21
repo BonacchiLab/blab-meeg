@@ -248,17 +248,17 @@ def run_prep_pipeline(
 
 
         # Full MEEG data visualization (butterfly plot)
-        fig_1st_step_done = raw_clean.copy().plot(duration=raw_clean.times[-1], butterfly=True, show=False)
-        report.add_figure(fig_1st_step_done, title="Raw after Badchanels + Maxwell + Prep")
-        plt.close(fig_1st_step_done)
+        #fig_1st_step_done = raw_clean.copy().plot(duration=raw_clean.times[-1], butterfly=True, show=False)
+        #report.add_figure(fig_1st_step_done, title="Raw after Badchanels + Maxwell + Prep")
+        #plt.close(fig_1st_step_done)
 
 
     #*#*#*#*#*#*#*#*#*#*#
     # 2.8) Save outputs #
     #*#*#*#*#*#*#*#*#*#*#
-    for i, raw_prepped in enumerate(raws_prepped):
+    for i, raw_clean in enumerate(raws_clean):
         file_path = out_paths["01_prep_pipeline"] / f"{subject}_01_prep_pipeline_{names[i]}.fif"
-        raw_prepped.save(file_path, overwrite=True)
+        raw_clean.save(file_path, overwrite=True)
 
     report.save(out_paths["docs"] / "01_prep_pipeline_report2.html", overwrite=True)
 

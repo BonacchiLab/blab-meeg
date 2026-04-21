@@ -133,9 +133,9 @@ def run_badch_maxwell(
         run_name = names[i]
 
         # Full raw visualization (butterfly plot)
-        fig_all = raw.plot(duration=raw.times[-1], butterfly=True, show=False)
-        report.add_figure(fig_all, title="All channels", section=run_name)
-        plt.close(fig_all)
+        #fig_all = raw.plot(duration=raw.times[-1], butterfly=True, show=False)
+        #report.add_figure(fig_all, title="All channels", section=run_name)
+        #plt.close(fig_all)
                 
         auto_noisy_chs = all_noisy[i]
         auto_flat_chs = all_flat[i]
@@ -253,8 +253,8 @@ def run_badch_maxwell(
 
 
         # Global MEG signal comparison
-        fig_meg_raw = raw.copy().pick(["meg"]).plot(duration=10, butterfly=True, show=True)
-        fig_meg_sss = raw_sss.copy().pick(["meg"]).plot(duration=10, butterfly=True, show=True)
+        fig_meg_raw = raw.copy().pick(["meg"]).plot(duration=10, start=50, butterfly=True, show=True)
+        fig_meg_sss = raw_sss.copy().pick(["meg"]).plot(duration=10, start=50, butterfly=True, show=True)
         report.add_figure(fig_meg_raw, title="Meg Raw", section=run_name)
         report.add_figure(fig_meg_sss, title="Meg after Maxwell", section=run_name)
         plt.close(fig_meg_raw)

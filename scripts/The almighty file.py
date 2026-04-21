@@ -53,7 +53,7 @@ def run_full_pipeline(subject):
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
     names = [f"dur{i}" for i in range(1, 6)]
-
+    
     # -------------------------
     # FILES RAW
     # -------------------------
@@ -70,7 +70,7 @@ def run_full_pipeline(subject):
         subject=subject,
         names=names,
     )
-
+    
     sss_files = [
         out_paths["00_badch_maxwell"] / f"{subject}_badch_maxwell_{n}.fif"
         for n in names
@@ -116,6 +116,16 @@ def run_full_pipeline(subject):
         names=names,
     )
 
+
+if __name__ == "__main__":
+    run_full_pipeline("CA140")
+
+
+
+
+
+"""
+
     print("\n👉 Agora corre manualmente o inspect_ica antes de aplicar.")
 
     input("Press Enter depois de escolheres componentes...")
@@ -134,12 +144,7 @@ def run_full_pipeline(subject):
 
     return raw_final
 
-
-if __name__ == "__main__":
-    run_full_pipeline("CA140")
-
-
-
+"""
 
 
 

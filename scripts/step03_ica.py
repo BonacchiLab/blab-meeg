@@ -33,13 +33,16 @@ def run_train_ica(
     raws_for_ica = []
 
     for raw_annotated in raws_annotated:
-        r = raw_annotated.copy()
-        r.pick(['meg', 'eeg' , 'eog', 'ecg'])
-        r.filter(1., 40.)
-        r.resample(250., npad="auto")
-        raws_for_ica.append(r)
+        raw_for_ica = raw_annotated.copy()
+        raw_for_ica.load_data()  # Carregar dados para memória
+        raw_for_ica.pick(['meg', 'eeg' , 'eog', 'ecg'])
+        raw_for_ica.filter(1., 40.)
+        raw_for_ica.resample(250., npad="auto")
+        raws_for_ica.append(raw_for_ica)
 
     raw_ica = mne.concatenate_raws(raws_for_ica)
+    
+    del raws_annotated
 
     # =========================
     # ICA MEG
@@ -84,28 +87,30 @@ def run_train_ica(
         }, f)
 
 
-    # -------------------------
-    # QUICK VISUALS
-    # -------------------------
+        # -------------------------
+        # QUICK VISUALS
+        # -------------------------
 
 
     sug_ica_comps = f"Suggested MEG: {suggested_meg}\nSuggested EEG:, {suggested_eeg}"
     report.add_html(title="Suggested Ica components to remove", html = sug_ica_comps)
     
-    fig_ica_meg_comp = ica_meg.plot_components()
-    fig_ica_eeg_comp = ica_eeg.plot_components()
+    fig_ica_meg_comp = ica_meg.plot_components(show=False)
+    fig_ica_eeg_comp = ica_eeg.plot_components(show=False)
     report.add_figure(fig_ica_meg_comp, title="ICA MEG components")
     report.add_figure(fig_ica_eeg_comp, title="ICA MEG components")
-    plt.close(fig_ica_meg_comp)
-    plt.close(fig_ica_eeg_comp)
 
 
-    fig_ica_meg_scores = ica_meg.plot_scores(eog_scores_meg)
-    fig_ica_eeg_scores = ica_eeg.plot_scores(eog_scores_eeg)
-    report.add_figure(fig_ica_meg_scores, title="ICA MEG components")
-    report.add_figure(fig_ica_eeg_scores, title="ICA MEG components")
-    plt.close(fig_ica_meg_scores)
-    plt.close(fig_ica_eeg_scores)
+
+    fig_ica_eog_meg_scores = ica_meg.plot_scores(eog_scores_meg, show=False)
+    fig_ica_eog_eeg_scores = ica_eeg.plot_scores(eog_scores_eeg, show=False)
+    fig_ica_ecg_meg_scores = ica_meg.plot_scores(ecg_scores_meg, show=False)
+    fig_ica_ecg_eeg_scores = ica_eeg.plot_scores(ecg_scores_eeg, show=False)
+    report.add_figure(fig_ica_eog_meg_scores, title="ICA EOG MEG components")
+    report.add_figure(fig_ica_eog_eeg_scores, title="ICA EOG EEG components")
+    report.add_figure(fig_ica_ecg_meg_scores, title="ICA ECG MEG components")
+    report.add_figure(fig_ica_ecg_eeg_scores, title="ICA ECG EEG components")
+
 
 
     # -------------------------
@@ -224,13 +229,12 @@ def run_apply_ica(
     fig_ica_eeg = ica_eeg.plot_components()
     report.add_figure(fig_ica_meg, title="ICA meg components removed")
     report.add_figure(fig_ica_eeg, title="ICA eeg components removed")
-    plt.close(fig_ica_meg)
-    plt.close(fig_ica_eeg)
+
     
 
-    fig_all = raw_concat.copy().plot(duration=raw_concat.times[-1], butterfly=True, show=False)
-    report.add_figure(fig_all, title="All channels")
-    plt.close(fig_all)
+    #fig_all = raw_concat.copy().plot(duration=raw_concat.times[-1], butterfly=True, show=False)
+    #report.add_figure(fig_all, title="All channels")
+    #plt.close(fig_all)
     
 
 
