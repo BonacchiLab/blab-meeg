@@ -23,6 +23,7 @@ dev = [
     "blab-meeg",
     "ipykernel>=7.1.0",
     "pytest>=9.0.1",
+    "ruff>=0.14.14",
 ]
 
 [tool.uv.sources]
