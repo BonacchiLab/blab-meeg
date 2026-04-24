@@ -18,7 +18,7 @@ def run_preprocess_epochs(
 ):
     report = mne.Report(title=f"{subject} - Epochs")
 
-    raw_concatenated = mne.io.read_raw_fif(file_paths, preload=False)
+    raw_concatenated = mne.io.read_raw_fif(file_paths, preload=True)
     
     epochs_raw, events = create_raw_epochs(raw_concatenated)
 
@@ -39,23 +39,15 @@ def run_preprocess_epochs(
     # Aplica o baseline
     epochs_baselined.apply_baseline(baseline=baseline)
     
+    epochs_clean = epochs_baselined.copy()
+    
     reject_criteria = dict(
     mag=6000e-15,
     grad=4000e-13,
-    eeg=200e-6,  # O critério de rejeição do EEG com MEG é diferente de um normal 
-)
-    epochs_clean = epochs_baselined.copy()
-    
-    # Aplica os critérios de rejeição, se forem definidos
-    if reject_criteria is None:
-        reject_criteria = dict(
-            mag=6000e-15,
-            grad=4000e-13,
-            eeg=200e-6,
-        )
+    eeg=200e-6,  
+)    
     epochs_clean.drop_bad(reject=reject_criteria)    
-    
-    
+   
     # ========================#
     # =======Data Report======#
     # ========================#              
@@ -106,7 +98,7 @@ def run_preprocess_epochs(
     table.set_fontsize(8)
     table.scale(1, 1.5)
     plt.tight_layout()
-    plt.show()
+    
 
     # Adicionar ao relatório
     report.add_figure(fig_meta, title=title_meta)
@@ -121,8 +113,11 @@ def run_preprocess_epochs(
     report.save(out_paths["docs"] / "04_epochs_report.html", overwrite=True)
     metadata.to_csv(out_paths["docs"] / "metadata.csv", index=False)
 
+    plt.close('all')
+    
+    del epochs_raw, epochs_annotations, epochs_baselined
+    
     return epochs_clean
-
 
 
 

@@ -33,6 +33,7 @@ def run_badch_maxwell(
     out_paths,
     subject="sub",
     names=None,
+    save_outputs=True,
 ):
 
 
@@ -307,28 +308,26 @@ def run_badch_maxwell(
     # - HTML report
     # - CSV with detection scores
     # - JSON summary for pipeline tracking
+    if save_outputs:
+        for i, raw_sss in enumerate(raws_sss):
+            file_path = out_paths["00_badch_maxwell"] / f"{subject}_badch_maxwell_{names[i]}.fif"
+            raw_sss.save(file_path, overwrite=True)
 
-    for i, raw_sss in enumerate(raws_sss):
-        file_path = out_paths["00_badch_maxwell"] / f"{subject}_badch_maxwell_{names[i]}.fif"
-        raw_sss.save(file_path, overwrite=True)
 
+        report.save(out_paths["docs"] / "00_badch_maxwell_report.html", overwrite=True)
+        
+        df_final = pd.concat(all_dfs, ignore_index=True)
+        df_final.to_csv(out_paths["docs"] / "00_badch_maxwell_scores.csv", index=False)
 
-    report.save(out_paths["docs"] / "00_badch_maxwell_report.html", overwrite=True)
-    
-    df_final = pd.concat(all_dfs, ignore_index=True)
-    df_final.to_csv(out_paths["docs"] / "00_badch_maxwell_scores.csv", index=False)
+        with open(out_paths["docs"] / "00_badch_maxwell_info.json", "w") as f:
+            json.dump(all_preproc_info, f, indent=4)
 
-    with open(out_paths["docs"] / "00_badch_maxwell_info.json", "w") as f:
-        json.dump(all_preproc_info, f, indent=4)
-
-    
-    
+    # Cleanup
     plt.close('all')
-
-    del raws, raws_badch, raws_sss
-
+    del raws, raws_badch
     gc.collect()
-    #return raws_sss
+    
+    return raws_sss
 
 
 

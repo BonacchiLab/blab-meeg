@@ -8,9 +8,9 @@ from step02_artifact_annotations import run_artifact_annotations
 from step03_ica import run_train_ica, run_apply_ica
 
 
-#TODO: caaaaaaaaaaso de erro tens isto "del raw" --> # the god weapon 
 
 inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+
 subject = "CA140"
 
 sub_indir = Path(fr"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
@@ -36,12 +36,12 @@ dur_files = [x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR"
 cal_file = fr"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-calibration_meg.dat"
 ct_file = fr"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-crosstalk_meg.fif"
 
-# master_pipeline.py
 
 
-# IMPORTS DAS TUAS FUNÇÕES
 
-def run_full_pipeline(subject):
+
+
+def run_full_pipeline_part1(subject):
 
     # -------------------------
     # PATHS
@@ -58,7 +58,7 @@ def run_full_pipeline(subject):
     # FILES RAW
     # -------------------------
     raw_files = sorted([x for x in sub_dur_indir.glob("*DurR*.fif")])
-
+    """
     # -------------------------
     # STEP 00: Maxwell
     # -------------------------
@@ -69,6 +69,7 @@ def run_full_pipeline(subject):
         out_paths=out_paths,
         subject=subject,
         names=names,
+        ,
     )
     
     sss_files = [
@@ -100,7 +101,7 @@ def run_full_pipeline(subject):
         subject=subject,
         names=names,
     )
-
+"""    
     annot_files = [
         out_paths["02_artifact_annotations"] / f"{subject}_02_artifact_annotations_{n}.fif"
         for n in names
@@ -118,7 +119,7 @@ def run_full_pipeline(subject):
 
 
 if __name__ == "__main__":
-    run_full_pipeline("CA140")
+    run_full_pipeline_part1("CA140")
 
 
 

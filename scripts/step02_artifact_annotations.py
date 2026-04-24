@@ -94,6 +94,9 @@ def run_artifact_annotations(
         # Detects eye blinks using EOG channels or proxies.
         # Creates fixed-duration annotations around each blink.
 
+        if "BIO002" in raw_clean.info["ch_names"]:
+            raw_clean.set_channel_types({"BIO002": "eog"})
+            
         eog_events = mne.preprocessing.find_eog_events(raw_clean)
 
         onsets = eog_events[:, 0] / raw_clean.info["sfreq"] - 0.25

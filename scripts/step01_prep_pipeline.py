@@ -33,6 +33,7 @@ def run_prep_pipeline(
     out_paths,
     subject="sub",
     names=None,
+    save_outputs=True,
 ):
 
 
@@ -256,24 +257,23 @@ def run_prep_pipeline(
     #*#*#*#*#*#*#*#*#*#*#
     # 2.8) Save outputs #
     #*#*#*#*#*#*#*#*#*#*#
-    for i, raw_clean in enumerate(raws_clean):
-        file_path = out_paths["01_prep_pipeline"] / f"{subject}_01_prep_pipeline_{names[i]}.fif"
-        raw_clean.save(file_path, overwrite=True)
+    if save_outputs:
+        for i, raw_clean in enumerate(raws_clean):
+            file_path = out_paths["01_prep_pipeline"] / f"{subject}_01_prep_pipeline_{names[i]}.fif"
+            raw_clean.save(file_path, overwrite=True)
 
-    report.save(out_paths["docs"] / "01_prep_pipeline_report2.html", overwrite=True)
+        report.save(out_paths["docs"] / "01_prep_pipeline_report.html", overwrite=True)
 
-    with open(out_paths["docs"] / "01_prep_pipeline_info.json", "w") as f:
-        json.dump(prep_info, f, indent=4)
+        with open(out_paths["docs"] / "01_prep_pipeline_info.json", "w") as f:
+            json.dump(prep_info, f, indent=4)
 
 
-
+# Cleanup
     plt.close('all')
+    del raws_sss, raws_prep, raws_prepped
+    # gc.collect()
 
-    del raws_sss, raws_prep, raws_prepped, raws_clean
-
-    gc.collect()
-    
-    #return raws_clean 
+    return raws_clean  
 
 
 

@@ -9,6 +9,7 @@ import json
 from mne.preprocessing import read_ica
 import matplotlib.pyplot as plt
 import gc
+from blab_meeg.raw_utils import get_eog_ecg_name_dict
 
 def run_train_ica(
     file_paths,
@@ -35,14 +36,22 @@ def run_train_ica(
     for raw_annotated in raws_annotated:
         raw_for_ica = raw_annotated.copy()
         raw_for_ica.load_data()  # Carregar dados para memória
-        raw_for_ica.pick(['meg', 'eeg' , 'eog', 'ecg'])
+        raw_for_ica.pick(['meg', 'eeg' , 'eog', 'ecg', 'bio'])  # Manter apenas canais relevantes
         raw_for_ica.filter(1., 40.)
         raw_for_ica.resample(250., npad="auto")
         raws_for_ica.append(raw_for_ica)
 
     raw_ica = mne.concatenate_raws(raws_for_ica)
     
+
     del raws_annotated
+
+
+    eog_ecg_names = get_eog_ecg_name_dict(raw_ica.info)
+
+    eog_ch_names = eog_ecg_names["eog"]
+    ecg_ch_names = eog_ecg_names["ecg"]
+    ecg_ch_name = ecg_ch_names[0] if ecg_ch_names else None
 
     # =========================
     # ICA MEG
@@ -55,12 +64,10 @@ def run_train_ica(
     )
     ica_meg.fit(raw_ica, picks='meg', reject_by_annotation=True)
 
-    eog_meg, eog_scores_meg = ica_meg.find_bads_eog(raw_ica, ch_name=['EOG001','EOG002'])
-    ecg_meg, ecg_scores_meg = ica_meg.find_bads_ecg(raw_ica, ch_name='ECG003')
+    # Find bad components based on EOG and ECG correlations        
+    eog_meg, eog_scores_meg = ica_meg.find_bads_eog(raw_ica, ch_name=eog_ch_names)
+    ecg_meg, ecg_scores_meg = ica_meg.find_bads_ecg(raw_ica, ch_name=ecg_ch_name)
 
-   
-    suggested_meg = sorted(set(eog_meg + ecg_meg))
-    suggested_meg = [int(x) for x in suggested_meg]
 
     # =========================
     # ICA EEG
@@ -74,31 +81,18 @@ def run_train_ica(
 
     ica_eeg.fit(raw_ica, picks='eeg', reject_by_annotation=True)
 
-    eog_eeg, eog_scores_eeg = ica_eeg.find_bads_eog(raw_ica, ch_name=['EOG001','EOG002'])
-    ecg_eeg, ecg_scores_eeg = ica_eeg.find_bads_ecg(raw_ica, ch_name='ECG003')
-
-    suggested_eeg = sorted(set(eog_eeg + ecg_eeg))
-    suggested_eeg = [int(x) for x in suggested_eeg]
-
-    with open(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\CA124_Preproc\03_ica_suggestions.json", "w") as f:
-        json.dump({
-            "meg": [int(x) for x in suggested_meg],
-            "eeg": [int(x) for x in suggested_eeg]
-        }, f)
-
+    eog_eeg, eog_scores_eeg = ica_eeg.find_bads_eog(raw_ica, ch_name=eog_ch_names)
+    ecg_eeg, ecg_scores_eeg = ica_eeg.find_bads_ecg(raw_ica, ch_name=ecg_ch_name)
+    
 
         # -------------------------
         # QUICK VISUALS
         # -------------------------
 
-
-    sug_ica_comps = f"Suggested MEG: {suggested_meg}\nSuggested EEG:, {suggested_eeg}"
-    report.add_html(title="Suggested Ica components to remove", html = sug_ica_comps)
-    
     fig_ica_meg_comp = ica_meg.plot_components(show=False)
     fig_ica_eeg_comp = ica_eeg.plot_components(show=False)
     report.add_figure(fig_ica_meg_comp, title="ICA MEG components")
-    report.add_figure(fig_ica_eeg_comp, title="ICA MEG components")
+    report.add_figure(fig_ica_eeg_comp, title="ICA EEG components")
 
 
 
@@ -119,17 +113,38 @@ def run_train_ica(
     ica_meg.save(out_paths["03_ica"] / f"{subject}_ica_meg.fif", overwrite=True)
     ica_eeg.save(out_paths["03_ica"] / f"{subject}_ica_eeg.fif", overwrite=True)
 
-    with open(out_paths["docs"] / f"{subject}_ica_suggestions.json", "w") as f:
+    file_path = out_paths["03_ica"] / f"{subject}_03_ica_train_file.fif"
+    raw_ica.save(file_path, overwrite=True)
+    
+    with open(out_paths["docs"] / f"{subject}_ica_comps_to_remove.json", "w") as f:
         json.dump({
-            "meg": suggested_meg,
-            "eeg": suggested_eeg
+            "meg": {
+                "auto": {
+                    "eog": [int(x) for x in eog_meg],
+                    "ecg": [int(x) for x in ecg_meg]
+                },
+                "manual": {
+                    "eog": [],
+                    "ecg": []
+                }
+            },
+            "eeg": {
+                "auto": {
+                    "eog": [int(x) for x in eog_eeg],
+                    "ecg": [int(x) for x in ecg_eeg]
+                },
+                "manual": {
+                    "eog": [],
+                    "ecg": []
+                }
+            }
         }, f, indent=4)
 
     report.save(out_paths["docs"] / "03_ica_report.html", overwrite=True)
 
     plt.close('all')
 
-    del ica_meg, ica_eeg
+    del ica_meg, ica_eeg, raw_ica
 
     gc.collect()
 
@@ -140,36 +155,6 @@ def run_train_ica(
 
 
 
-def run_inspect_ica(raw_path, ica_meg_path, ica_eeg_path, sugg_path):
-
-
-
-    raw_annotated = mne.io.read_raw_fif(raw_path, preload=True)
-    ica_meg = read_ica(ica_meg_path)
-    ica_eeg = read_ica(ica_eeg_path)
-
-    with open(sugg_path) as f:
-        sugg = json.load(f)
-
-    # Interactive plots
-    ica_meg.plot_sources(raw_annotated)
-    ica_eeg.plot_sources(raw_annotated)
-
-    ica_meg.plot_properties(raw_annotated, picks=sugg["meg"])
-    ica_eeg.plot_properties(raw_annotated, picks=sugg["eeg"])
-
-    print("\nType final components (e.g. 0,1,2)")
-
-    meg_input = input("MEG: ")
-    eeg_input = input("EEG: ")
-
-    final_meg = sugg["meg"] + [int(x) for x in meg_input.split(",") if x]
-    final_eeg = sugg["eeg"] + [int(x) for x in eeg_input.split(",") if x]
-
-    with open(sugg_path, "w") as f:
-        json.dump({"meg": final_meg, "eeg": final_eeg}, f, indent=4)
-
-    print("Saved.")
 
 
 
@@ -183,7 +168,7 @@ def run_apply_ica(
     
     report = mne.Report(title=f"{subject} - ICA apply")
 
-    raws = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
+    raws = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
 
     if names is None:
         names = [f"run_{i+1}" for i in range(len(file_paths))]
@@ -194,13 +179,27 @@ def run_apply_ica(
     ica_meg = read_ica(out_paths["03_ica"] / f"{subject}_ica_meg.fif")
     ica_eeg = read_ica(out_paths["03_ica"] / f"{subject}_ica_eeg.fif")
 
-    with open(out_paths["docs"] / f"{subject}_ica_suggestions.json") as f:
+    # Função para juntar todos os componentes (auto + manual, eog + ecg)
+    def flatten_ica_components(comp_dict):
+        return (
+            comp_dict["auto"]["eog"]
+            + comp_dict["auto"]["ecg"]
+            + comp_dict["manual"]["eog"]
+            + comp_dict["manual"]["ecg"]
+        )
+
+    
+    raws_ica_apply = [] #-----> tens de mudar o nome 
+
+    with open(out_paths["docs"] / f"{subject}_ica_comps_to_remove.json") as f:
         final = json.load(f)
+    
+    # Obter picks corretos (lista de ints)
+    meg_picks = flatten_ica_components(final["meg"])
+    eeg_picks = flatten_ica_components(final["eeg"])
 
-    ica_meg.exclude = final["meg"]
-    ica_eeg.exclude = final["eeg"]
-
-    raws_clean = []
+    ica_meg.exclude = meg_picks
+    ica_eeg.exclude = eeg_picks
 
     # -------------------------
     # APPLY PER RUN
@@ -209,24 +208,18 @@ def run_apply_ica(
         run_name = names[i]
         print(f"Applying ICA to {run_name}")
 
-        raw_clean = raw.copy()
-        ica_meg.apply(raw_clean)
-        ica_eeg.apply(raw_clean)
+        raw_ica_apply = raw.copy()
+        ica_meg.apply(raw_ica_apply)
+        ica_eeg.apply(raw_ica_apply)
 
-        raws_clean.append(raw_clean)
-
-        # Save per run
-        raw_clean.save(
-            out_paths["03_ica"] / f"{subject}_03_ica_{run_name}.fif",
-            overwrite=True
-        )
+        raws_ica_apply.append(raw_ica_apply)
 
     # Concatenate final
-    raw_concat = mne.concatenate_raws(raws_clean)
+    raw_concat = mne.concatenate_raws(raws_ica_apply)
 
     #report
-    fig_ica_meg = ica_meg.plot_components()
-    fig_ica_eeg = ica_eeg.plot_components()
+    fig_ica_meg = ica_meg.plot_properties(raws[0], picks=meg_picks)
+    fig_ica_eeg = ica_eeg.plot_properties(raws[0], picks=eeg_picks)
     report.add_figure(fig_ica_meg, title="ICA meg components removed")
     report.add_figure(fig_ica_eeg, title="ICA eeg components removed")
 

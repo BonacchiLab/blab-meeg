@@ -1,44 +1,95 @@
 #The almighty file 2
-import mne
-import json
-from mne.preprocessing import read_ica
-from pathlib import Path
+# master_pipeline.py
 
+from pathlib import Path
+from paths import create_output_folders
+
+from step03_ica import run_apply_ica
+from step04_epochs import run_preprocess_epochs
+
+
+
+inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
 subject = "CA140"
 
-base = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT")
+sub_indir = Path(fr"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
-raw_path = base / subject / f"{subject}_Preproc/02_artifact_annotations/{subject}_02_artifact_annotations_dur1.fif"
-ica_meg_path = base / subject / f"{subject}_Preproc/03_ica/{subject}_ica_meg.fif"
-ica_eeg_path = base / subject / f"{subject}_Preproc/03_ica/{subject}_ica_eeg.fif"
-sugg_path = base / subject / f"{subject}_Docs/{subject}_ica_suggestions.json"
+out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
 
-# LOAD
-raw = mne.io.read_raw_fif(raw_path, preload=True)
-ica_meg = read_ica(ica_meg_path)
-ica_eeg = read_ica(ica_eeg_path)
+outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
 
-with open(sugg_path) as f:
-    sugg = json.load(f)
+    # --- caminhos dos ficheiros ---
+file_paths = [
+    fr"{sub_dur_indir}\{subject}_MEEG_1_DurR1.fif",
+    fr"{sub_dur_indir}\{subject}_MEEG_1_DurR2.fif",
+    fr"{sub_dur_indir}\{subject}_MEEG_1_DurR3.fif",
+    fr"{sub_dur_indir}\{subject}_MEEG_1_DurR4.fif",
+    fr"{sub_dur_indir}\{subject}_MEEG_1_DurR5.fif"
+]
+names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
+dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1,6)]
+dur_files = [x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name]
 
-# PLOTS
-ica_meg.plot_sources(raw)
-ica_eeg.plot_sources(raw)
+# ficheiros de calibração e cross-talk
+cal_file = fr"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-calibration_meg.dat"
+ct_file = fr"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-crosstalk_meg.fif"
 
-ica_meg.plot_properties(raw, picks=sugg["meg"])
-ica_eeg.plot_properties(raw, picks=sugg["eeg"])
+# caminhos ICA
+ica_meg_path = out_paths["03_ica"] / f"{subject}_ica_meg.fif"
+ica_eeg_path = out_paths["03_ica"] / f"{subject}_ica_eeg.fif"
 
-# INPUT
-print("\nType final components (e.g. 0,1,2)")
+# JSON
+ica_json_path = out_paths["docs"] / f"{subject}_ica_suggestions.json"
 
-meg_input = input("MEG: ")
-eeg_input = input("EEG: ")
+def run_full_pipeline_part2(subject):
 
-final_meg = sorted(set(sugg["meg"] + [int(x) for x in meg_input.split(",") if x]))
-final_eeg = sorted(set(sugg["eeg"] + [int(x) for x in eeg_input.split(",") if x]))
+    # -------------------------
+    # PATHS
+    # -------------------------
+    inroot = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+    out_paths = create_output_folders(subject=subject, inroot=inroot)
 
-# SAVE
-with open(sugg_path, "w") as f:
-    json.dump({"meg": final_meg, "eeg": final_eeg}, f, indent=4)
+    sub_indir = inroot / subject
+    sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
-print("Saved.")
+    names = [f"dur{i}" for i in range(1, 6)]
+
+    # -------------------------
+    # FILES
+    # -------------------------
+    raw_files = sorted([x for x in sub_dur_indir.glob("*DurR*.fif")])
+
+    annot_files = [
+        out_paths["02_artifact_annotations"] / f"{subject}_02_artifact_annotations_{n}.fif"
+        for n in names
+    ]
+
+    # =========================
+    # STEP 05 — APPLY ICA
+    # =========================
+    print("\n--- APPLY ICA ---")
+
+    ica_files = run_apply_ica(
+        file_paths=annot_files,
+        out_paths=out_paths,
+        subject=subject,
+        names=names,
+    )
+
+    # ficheiro concatenado final
+    concat_clean_path = out_paths["03_ica"] / f"{subject}_03_ica_concat.fif"
+
+    # =========================
+    # STEP 06 — EPOCHS
+    # =========================
+    print("\n--- EPOCHS ---")
+
+    epochs_clean = run_preprocess_epochs(
+        file_paths=concat_clean_path,
+        out_paths=out_paths,
+        subject=subject,
+    )
+
+if __name__ == "__main__":
+    run_full_pipeline_part2("CA140")
