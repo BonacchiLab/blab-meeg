@@ -117,3 +117,138 @@ def create_metadata(epochs, events):
 
 
 
+
+
+
+"""
+def create_metadata(epochs, events, sfreq):
+    
+    3epochs : MNE Epochs object
+    #events : full events array (sample, 0, event_id)
+    #sfreq  : sampling frequency (Hz), ex: raw.info['sfreq']
+    
+
+    # Category (faces, objects, fonts, false_fonts)
+    def category(event_id):
+        if 1 <= event_id <= 20:
+            return "faces"
+        elif 21 <= event_id <= 40:
+            return "objects"
+        elif 41 <= event_id <= 60:
+            return "fonts"
+        elif 61 <= event_id <= 80:
+            return "false_fonts"
+        else:
+            return None
+
+    # Orientation (center, left, right)
+    def orientation(event_id):
+        mapping = {
+            101: "center",
+            102: "left",
+            103: "right",
+        }
+        return mapping.get(event_id, None)
+
+    # Duration (500ms, 1000ms, 1500ms)
+    def duration(event_id):
+        mapping = {
+            151: "dur_500ms",
+            152: "dur_1000ms",
+            153: "dur_1500ms",
+        }
+        return mapping.get(event_id, None)
+
+    # Relevance (target, relevant, irrelevant)
+    def relevance(event_id):
+        mapping = {
+            201: "target",
+            202: "relevant",
+            203: "irrelevant",
+        }
+        return mapping.get(event_id, None)
+
+    # Sex of face
+    def sex(event_id):
+        if 1 <= event_id <= 10:
+            return "faces_man"
+        elif 11 <= event_id <= 20:
+            return "faces_woman"
+        else:
+            return None
+
+    # Response classification
+    def response_outcome(clicked, is_target):
+        if clicked and is_target:
+            return "hit"              # clicked, correct
+        elif clicked and not is_target:
+            return "false_alarm"      # clicked, incorrect
+        elif not clicked and is_target:
+            return "miss"             # no click, incorrect
+        elif not clicked and not is_target:
+            return "correct_rejection" # no click, correct
+        else:
+            return None
+
+    metadata_rows = []
+
+    for stim in epochs.events:
+        stim_sample = stim[0]
+        stim_code = stim[2]
+
+        # Window for task-related markers after stimulus
+        window = events[
+            (events[:, 0] > stim_sample) &
+            (events[:, 0] < stim_sample + int(sfreq * 2))  # 2 sec response window
+        ]
+
+        ori = None
+        dur = None
+        rel = None
+        response_sample = None
+        clicked = False
+
+        for e in window:
+            if e[2] in [101, 102, 103]:
+                ori = orientation(e[2])
+
+            elif e[2] in [151, 152, 153]:
+                dur = duration(e[2])
+
+            elif e[2] in [201, 202, 203]:
+                rel = relevance(e[2])
+
+            elif e[2] == 255 and response_sample is None:
+                response_sample = e[0]
+                clicked = True
+
+        # Reaction time
+        if clicked:
+            reaction_time = (response_sample - stim_sample) / sfreq  # seconds
+        else:
+            reaction_time = None
+
+        # Determine if stimulus was target
+        is_target = (rel == "target")
+
+        # Determine behavioral outcome
+        outcome = response_outcome(clicked, is_target)
+
+        metadata_rows.append({
+            "sti_id": stim_code,
+            "category": category(stim_code),
+            "orientation": ori,
+            "duration": dur,
+            "relevance": rel,
+            "sex": sex(stim_code) if category(stim_code) == "faces" else None,
+            "button_click": clicked,
+            "reaction_time_s": reaction_time,
+            "response_type": outcome
+        })
+
+    metadata = pd.DataFrame(metadata_rows)
+    epochs.metadata = metadata
+
+    return epochs, metadata
+
+"""
