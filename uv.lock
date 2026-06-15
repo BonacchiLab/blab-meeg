@@ -29,6 +29,7 @@ dependencies = [
     { name = "mne" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pycrostates" },
     { name = "pyprep" },
     { name = "pyside6" },
     { name = "scikit-learn" },
@@ -50,6 +51,7 @@ requires-dist = [
     { name = "mne", specifier = ">=1.10.2" },
     { name = "numpy", specifier = ">=2.3.5" },
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pycrostates", specifier = ">=0.6.1" },
     { name = "pyprep", specifier = ">=0.6.0" },
     { name = "pyside6", specifier = ">=6.10.1" },
     { name = "scikit-learn", specifier = ">=1.7.2" },
@@ -1002,6 +1004,28 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fe/cf/d2d3b9f5699fb1e4615c8e32ff220203e43b248e1dfcc6736ad9057731ca/pycparser-2.23.tar.gz", hash = "sha256:78816d4f24add8f10a06d6f05b4d424ad9e96cfebf68a4ddc99c65c0720d00c2", size = 173734, upload-time = "2025-09-09T13:23:47.91Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl", hash = "sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934", size = 118140, upload-time = "2025-09-09T13:23:46.651Z" },
+]
+
+[[package]]
+name = "pycrostates"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "decorator" },
+    { name = "jinja2" },
+    { name = "joblib" },
+    { name = "matplotlib" },
+    { name = "mne" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pooch" },
+    { name = "psutil" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a5/7a/c88622b3f8e94dcc3bfac0f919f5af9a1e4b5c770228a3f082a3bffbfc6a/pycrostates-0.6.1.tar.gz", hash = "sha256:62cccd98f43ed4ebf8d4a38f55f20c389b309c7f4637a1ef2d28543338aa5150", size = 123763, upload-time = "2024-08-02T09:45:12.521Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/16/34/d7bf91d316d8169d4c752f4ffcb1866e7babdb17f686dd80de963a6a2d32/pycrostates-0.6.1-py3-none-any.whl", hash = "sha256:ef0753b0013e3d3b426e28ce1483a24c1a682efcab9146c2877933bdf90b41ab", size = 169876, upload-time = "2024-08-02T09:45:10.291Z" },
 ]
 
 [[package]]

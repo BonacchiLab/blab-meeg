@@ -1,144 +1,159 @@
-File_Explanation
+File Structure
 
-preproc function 
-->step00
-->step01
-->step02
-->step03
-->step04
+Preprocessing functions
+-> step00_badch_maxwell
+-> step01_prep_pipeline
+-> step02_artifact_annotations
+-> step03_ica
+-> step04_epochs
 
+Pipeline controllers
+-> preprocessing_pipeline_1.py
+-> preprocessing_pipeline_2.py
 
-function caller 
-->The almighty file 
-->The almighty file 2
+ICA utility file
+-> manual_ica_review.py
 
-Ica special file 
--> The almighty file 1.5
-
-Random files
-->epoch_related_function -> cria epochs e o dataframe
-->Find_the_ECG_EOG... -> ficheiro para ver o index do ecg e do eog -> criado pelo professor 
-->paths -> cria as pastas para onde vao os ficheiros -> criado pelo professor 
-->run_proproc -> primeiro run_preproc -> criado pelo professor 
-
+Additional files
+-> epoch_related_functions.py     -> creates epochs and metadata dataframe
+-> find_ecg_eog_channels.py       -> utility script used to identify ECG/EOG channel indices (created by supervisor)
+-> paths.py                       -> creates output folder structure (created by supervisor)
+-> run_preproc.py                 -> original preprocessing launcher (created by supervisor)
 
 
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#                        
+# PREPROCESSING PIPELINE MEEG (5 runs) #        
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 
-# o que o tomas esta a fazer e queria melhorar 
-
-
-
-# ============================================================        #FALTA ACABAR 
-# PIPELINE DE PRÉ-PROCESSAMENTO MEEG (um sujeito, 5 runs)             #NAO SEI PK É QUE ISTO É UM PYTHON FILE MAS ACHO QUE NAO DEVIA SER 
-# ============================================================
-
-# Estrutura de diretorias (criada por create_output_folders):
+# Structure (created by create_output_folders):
 #   {subject}_Preproc/
 #   ├── 00_badch_maxwell/
 #   ├── 01_prep_pipeline/
 #   ├── 02_artifact_annotations/
 #   ├── 03_ica/
 #   └── 04_epochs_FINAL/
-#   {subject}_Docs/          # relatórios HTML, CSVs, JSONs
+#
+#   {subject}_Docs/      # HTML reports, CSV files, JSON files
 
-# ============================================================
-# step 00 – Bad channels + Maxwell filtering (MEG)
-# ============================================================
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# Step 00 – Bad channels + Maxwell filtering (MEG) #
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # INPUT:
 #   - raw fifs: {subject}_EXP1_MEEG/{subject}_MEEG_1_DurR[1-5].fif
 #   - cal_file: {subject}/metadata/.../calibration_meg.dat
 #   - ct_file:  {subject}/metadata/.../crosstalk_meg.fif
-# PROCESSAMENTO:
-#   - find_bad_channels_maxwell (noisy + flat)
-#   - maxwell_filter (SSS, alinhamento head position)
+# PREPROCESSING:
+#   - find_bad_channels_maxwell (noisy + flat + scores)
+#   - maxwell_filter (SSS)
 # OUTPUT (save_outputs=True):
 #   - /00_badch_maxwell/{subject}_badch_maxwell_{durN}.fif
 #   - /Docs/00_badch_maxwell_report.html
 #   - /Docs/00_badch_maxwell_scores.csv
 #   - /Docs/00_badch_maxwell_info.json
 
-# ============================================================
-# step 01 – PREP pipeline (EEG only)
-# ============================================================
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# Step 01 – PREP pipeline (EEG only) #
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # INPUT:
-#   - ficheiros gerados no PASSO 00:
+#   - files generated in STEP 00:
 #     /00_badch_maxwell/{subject}_badch_maxwell_{durN}.fif
-# PROCESSAMENTO:
-#   - extrai EEG, aplica PrepPipeline (line noise, rereferencing,
-#     detecção de maus canais com RANSAC, interpolação)
-#   - reintegra EEG limpo no MEG (MEG inalterado)
+# PROCESSING:
+#   - extracts EEG data and applies PrepPipeline
+#     (line-noise removal, rereferencing,
+#     bad-channel detection using RANSAC,
+#     channel interpolation)
+#   - reintegrates cleaned EEG into the MEG dataset
+#     (MEG remains unchanged)
 # OUTPUT:
 #   - /01_prep_pipeline/{subject}_01_prep_pipeline_{durN}.fif
 #   - /Docs/01_prep_pipeline_report.html
 #   - /Docs/01_prep_pipeline_info.json
 
-# ============================================================
-# step 02 – Detecção de artefactos (músculo, piscar, pausas)
-# ============================================================
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# Step 02 – Artifact detection (muscle, blink, saccades) # 
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # INPUT:
-#   - ficheiros do PASSO 01:
+#   - files generated in STEP 01:
 #     /01_prep_pipeline/{subject}_01_prep_pipeline_{durN}.fif
-# PROCESSAMENTO:
-#   - muscle: annotate_muscle_zscore (110‑140 Hz)
-#   - blinks: find_eog_events + anotações fixas
-#   - breaks: annotate_break (longos períodos sem eventos)
-#   - merge annotations no raw
+# PROCESSING:
+#   - muscle artifacts: annotate_muscle_zscore (110-140 Hz)
+#   - eye blinks: find_eog_events + fixed annotations
+#   - breaks: annotate_break (long periods without events)
+#   - merges all annotations into the raw object
 # OUTPUT:
 #   - /02_artifact_annotations/{subject}_02_artifact_annotations_{durN}.fif
-#   - /Docs/02_artifact_annotations_times.csv   # timings de cada artefacto
+#   - /Docs/02_artifact_annotations_times.csv          # timing information for each detected artifact
 #   - /Docs/02_artifact_annotations_report.html
 
-# ============================================================
-# step 03 – ICA (treino + aplicação)
-# ============================================================
-# 3A – TREINO (run_train_ica)
-# ----------------------------
+# *#*#*#*#*#*#*#*#*#*#*#*#
+# Step 3A – ICA training #
+# *#*#*#*#*#*#*#*#*#*#*#*#
 # INPUT:
-#   - ficheiros do PASSO 02:
+#   - files generated in STEP 02:
 #     /02_artifact_annotations/{subject}_02_artifact_annotations_{durN}.fif
-# PROCESSAMENTO:
-#   - load, pick MEG+EEG+EOG+ECG, filtragem 1‑40 Hz, resample 250 Hz
-#   - concatena todos os runs num único raw (para treino)
-#   - ICA (FastICA, 99% variância) separada para MEG e para EEG
-#   - deteção automática de componentes EOG/ECG (correlação)
+# PROCESSING:
+#   - loads data, selects MEG + EEG + EOG + ECG channels
+#   - applies 1-40 Hz filtering and resamples to 250 Hz
+#   - concatenates all runs into a single raw dataset
+#     for ICA training
+#   - trains separate ICA decompositions for MEG and EEG
+#     (FastICA, 99% explained variance)
+#   - automatically identifies EOG and ECG components
+#     through correlation analysis
 # OUTPUT:
-#   - /03_ica/{subject}_03_ica_train_file.fif          # raw concatenado usado no treino
-#   - /03_ica/{subject}_ica_meg.fif                    # objeto ICA (MEG)
-#   - /03_ica/{subject}_ica_eeg.fif                    # objeto ICA (EEG)
-#   - /Docs/{subject}_ica_comps_to_remove.json         # componentes auto‑detetadas
-#   - /Docs/03_ica_report.html                         # relatório com scores e componentes
+#   - /03_ica/{subject}_03_ica_train_file.fif     # concatenated raw dataset used for ICA training
+#   - /03_ica/{subject}_ica_meg.fif               # trained MEG ICA object
+#   - /03_ica/{subject}_ica_eeg.fif               # trained EEG ICA object
+#   - /Docs/{subject}_ica_comps_to_remove.json    # automatically detected ICA components
+#   - /Docs/03_ica_report.html                    # ICA diagnostic report
 #
-# (Após o treino, o utilizador deve inspecionar manualmente as componentes e editar
-#  o ficheiro JSON, adicionando componentes a "manual": {"eog": [...], "ecg": [...]} )
 
-# 3B – APLICAÇÃO (run_apply_ica)
-# --------------------------------
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# Extra step  – ICA manual inspection  #
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# After ICA training, the user must manually inspect
+# the components ( manual_ica_review.py) and edit the 
+# JSON (/Docs/{subject}_ica_comps_to_remove.json)file 
+# by adding selected components to:
+# "manual": {
+#     "eog": [...],
+#     "ecg": [...]
+# }
+
+# *#*#*#*#*#*#*#*#*#*#*#
+# Step 3B – ICA apply  #
+# *#*#*#*#*#*#*#*#*#*#*#
 # INPUT:
-#   - ficheiros do PASSO 02 (os mesmos anotados)
-#   - objetos ICA treinados: /03_ica/*ica_*.fif
-#   - JSON com componentes a remover (após edição manual)
-# PROCESSAMENTO:
-#   - carrega ICA e JSON, define exclude = auto + manual
-#   - aplica ICA a cada run (remove componentes)
-#   - concatena os 5 runs limpos
+#   - files from STEP 02 (annotated runs)
+#   - trained ICA objects: /03_ica/*ica_*.fif
+#   - JSON file containing components selected
+#     for removal after manual inspection
+# PROCESSING:
+#   - loads ICA solutions and JSON file
+#   - combines automatic and manual component selections
+#   - applies ICA to each run independently
+#   - concatenates the five cleaned runs
 # OUTPUT:
-#   - /03_ica/{subject}_03_ica_concat.fif              # dados concatenados após ICA
-#   - (não guarda os runs individuais aplicados)
-#   - relatório: neste script o save está omitido; pode adicionar-se.
+#   - /03_ica/{subject}_03_ica_concat.fif       # concatenated dataset after ICA cleaning
+#   - individual ICA-cleaned runs are not saved
+#   - /Docs/03_ica_completed_report.htm         # ICA properties report
 
-# ============================================================
-# step 04 – Epoching e baseline
-# ============================================================
+
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# step 04 – Epoching e baseline  #
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # INPUT:
-#   - ficheiro concatenado do PASSO 03:
+#   - Concatenated file from step 3b:
 #     /03_ica/{subject}_03_ica_concat.fif
-# PROCESSAMENTO:
-#   - find_events (STI101), extrai eventos entre 1‑80
-#   - cria epochs: tmin=-0.9 s, tmax=1.5 s
-#   - rejeita epochs com anotações (artifact annotations)
-#   - aplica baseline (-0.9 a 0 s)
-#   - drop bad epochs baseado em reject_criteria (valores predefinidos)
-#   - gera metadata (categoria, orientação, duração, relevância, sexo)
+# PROCESSING:
+#   - finds events (STI101) and extracts events 1-80
+#   - creates epochs (tmin=-0.9 s, tmax=1.5 s)
+#   - rejects epochs overlapping with annotations
+#   - applies baseline correction (-0.9 to 0 s)
+#   - removes bad epochs using predefined rejection criteria
+#   - generates metadata
+#       (category, orientation, duration,
+#        relevance, and sex)
 # OUTPUT:
 #   - /04_epochs_FINAL/{subject}_04_epochs_FINAL.fif
 #   - /Docs/04_epochs_report.html
@@ -151,13 +166,25 @@ Random files
 # [...]
 # [...]
 
-# ============================================================
-# NOTAS SOBRE O FLUXO COMPLETO (master_pipeline)
-# ============================================================
-# - A pipeline está dividida em duas partes:
-#     part1: executa PASSOS 00, 01, 02, 03A (treino ICA)
-#     part2: executa PASSO 03B (aplicação ICA) e PASSO 04
-# - Entre a part1 e a part2 é necessária a inspeção manual do JSON
-#   para escolher componentes a remover.
-# - Cada script guarda os seus outputs em pastas separadas,
-#   permitindo reiniciar o processo a partir de qualquer ponto.
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+# NOTES ON THE COMPLETE WORKFLOW (master pipeline) #
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
+#
+# - The preprocessing workflow is divided into two parts:
+#
+#     Part 1:
+#         STEP 00 Bad_channels + Maxwell filter
+#         STEP 01 Prep Pipeline
+#         STEP 02 Artifact Annotation
+#         STEP 03A (ICA training)   
+#
+#     Part 2:
+#         STEP 03B (ICA application)
+#         STEP 04 (epoching)
+#
+# - Manual inspection of the ICA components is required
+#   between Part 1 and Part 2.
+#
+# - Each processing step stores its outputs in dedicated
+#   folders, making it possible to restart the workflow
+#   from any stage if necessary.
