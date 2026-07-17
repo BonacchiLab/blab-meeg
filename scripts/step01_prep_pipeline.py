@@ -21,8 +21,6 @@ from paths import create_output_folders
 import numpy as np
 import matplotlib.pyplot as plt
 import json
-from mne.report import Report
-import gc
 
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Prep Pipeline function  #
@@ -30,11 +28,11 @@ import gc
 
 
 def run_prep_pipeline(
-    file_paths,
+    raws_sss,
     out_paths,
-    subject="sub",
-    names=None,
-    save_outputs=True,
+    names,
+    subject,
+    save_outputs,
 ):
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -44,10 +42,10 @@ def run_prep_pipeline(
 
     report = mne.Report(title=f"{subject} - Prep Pipeline")
 
-    raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
+    # raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
 
     if names is None:
-        names = [f"run_{i + 1}" for i in range(len(file_paths))]
+        names = [f"dur{i + 1}" for i in range(len(raws_sss))]
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
     # 2.2) Run PREP pipeline on EEG channels only  #
@@ -282,8 +280,12 @@ def run_prep_pipeline(
         plt.close(fig_eeg_prepped)
 
         # Full MEEG data visualization (butterfly plot)
-        # fig_1st_step_done = raw_clean.copy().plot(duration=raw_clean.times[-1], butterfly=True, show=False)
-        # report.add_figure(fig_1st_step_done, title="Raw after Badchanels + Maxwell + Prep")
+        # fig_1st_step_done = raw_clean.copy().plot(
+        #    duration=raw_clean.times[-1], butterfly=True, show=False
+        # )
+        # report.add_figure(
+        #    fig_1st_step_done, title="Raw after Badchanels + Maxwell + Prep"
+        # )
         # plt.close(fig_1st_step_done)
 
     # *#*#*#*#*#*#*#*#*#*#
@@ -293,59 +295,51 @@ def run_prep_pipeline(
         for i, raw_clean in enumerate(raws_clean):
             file_path = (
                 out_paths["01_prep_pipeline"]
-                / f"{subject}_01_prep_pipeline_{names[i]}.fif"
+                / f"{subject}_01_prep_pipeline_{names[i]}_raw.fif"
             )
             raw_clean.save(file_path, overwrite=True)
 
-        report.save(out_paths["docs"] / "01_prep_pipeline_report.html", overwrite=True)
+        report.save(
+            out_paths["docs_01_prep_pipeline"] / "01_prep_pipeline_report.html",
+            overwrite=True,
+        )
 
-        with open(out_paths["docs"] / "01_prep_pipeline_info.json", "w") as f:
+        with open(
+            out_paths["docs_01_prep_pipeline"] / "01_prep_pipeline_info.json", "w"
+        ) as f:
             json.dump(prep_info, f, indent=4)
 
     # Cleanup
     plt.close("all")
     del raws_sss, raws_prep, raws_prepped
-    # gc.collect()
-
+    del report
     return raws_clean
 
 
 if __name__ == "__main__":
-    # Meter a pasta do sujeito
+    subject = "CB072"
     inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-    subject = "CA124"
 
-    sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    sub_indir = inroot_dir / subject
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
     out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
 
-    outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
-    sub_dur_outdir = Path(
-        rf"{outroot_dir}\{subject}\{subject}_Preproc\00_badch_maxwell"
+    raw_files = sorted(sub_dur_indir.glob("*DurR*_raw.fif"))
+
+    names = [f"dur{i + 1}" for i in range(len(raw_files))]
+
+    sss_files = sorted(
+        out_paths["00_badch_maxwell"].glob(f"{subject}_00_badch_maxwell_*_raw.fif")
     )
+    raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in sss_files]
 
-    # --- caminhos dos ficheiros ---
-    file_paths = [
-        rf"{sub_dur_outdir}\{subject}_badch_maxwell1_dur1.fif",
-        rf"{sub_dur_outdir}\{subject}_badch_maxwell1_dur2.fif",
-        rf"{sub_dur_outdir}\{subject}_badch_maxwell1_dur3.fif",
-        rf"{sub_dur_outdir}\{subject}_badch_maxwell1_dur4.fif",
-        rf"{sub_dur_outdir}\{subject}_badch_maxwell1_dur5.fif",
-    ]
-    names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
-
-    dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1, 6)]
-    dur_files = [
-        x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-    ]
-
-    raws_prepped = run_prep_pipeline(
-        file_paths=file_paths,
+    run_prep_pipeline(
+        raws=raws_sss,
         out_paths=out_paths,
         subject=subject,
         names=names,
+        save_outputs=True,
     )
-
-
 # %%

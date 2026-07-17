@@ -21,7 +21,7 @@ matplotlib.use("QtAgg")
 from pathlib import Path
 
 # select subject
-subject = "CA124"
+subject = "CB072"
 
 # *#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Load training data  #
@@ -31,7 +31,7 @@ subject = "CA124"
 # the ICA fitting stage.
 
 ica_file_path = Path(
-    rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT\{subject}\{subject}_Preproc\03_ica"
+    rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT\{subject}\Preproc\03_ica"
 )
 
 raw_path = ica_file_path / f"{subject}_03_ica_train_file.fif"

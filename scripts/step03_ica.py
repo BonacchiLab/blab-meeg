@@ -31,10 +31,10 @@ from blab_meeg.raw_utils import get_eog_ecg_name_dict
 # 3a) ICA Training #
 # *#*#*#*#*#*#*#*#*#
 def run_train_ica(
-    file_paths,
+    raws_annotated,
     out_paths,
-    subject="sub",
-    names=None,
+    subject,
+    names,
 ):
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -46,7 +46,7 @@ def run_train_ica(
 
     report = mne.Report(title=f"{subject} - ICA Training")
 
-    raws_annotated = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
+    # raws_annotated = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
 
     if names is None:
         names = [f"run_{i + 1}" for i in range(len(file_paths))]
@@ -180,7 +180,9 @@ def run_train_ica(
     file_path = out_paths["03_ica"] / f"{subject}_03_ica_train_file.fif"
     raw_ica.save(file_path, overwrite=True)
 
-    with open(out_paths["docs"] / f"{subject}_ica_comps_to_remove.json", "w") as f:
+    with open(
+        out_paths["docs_03_ica"] / f"{subject}_ica_comps_to_remove.json", "w"
+    ) as f:
         json.dump(
             {
                 "meg": {
@@ -202,52 +204,40 @@ def run_train_ica(
             indent=4,
         )
 
-    report.save(out_paths["docs"] / "03_ica_report.html", overwrite=True)
-
+    report.save(out_paths["docs_03_ica"] / "03_ica_report.html", overwrite=True)
+    del report
     plt.close("all")
 
     del ica_meg, ica_eeg, raw_ica
 
-    # return ica_meg, ica_eeg
-
 
 if __name__ == "__main__":
-    # Meter a pasta do sujeito
-    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-    subject = "CB013"
+    subject = "CB072"
 
-    sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+
+    # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    sub_indir = inroot_dir / subject
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
     out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
 
-    outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
-    sub_dur_outdir = Path(
-        rf"{outroot_dir}\{subject}\{subject}_Preproc\02_artifact_annotations"
+    raw_files = sorted(sub_dur_indir.glob("*DurR*_raw.fif"))
+
+    names = [f"dur{i + 1}" for i in range(len(raw_files))]
+    file_paths = sorted(
+        out_paths["02_artifact_annotations"].glob(
+            f"{subject}_02_artifact_annotations_*_raw.fif"
+        )
     )
+    raws_annotated = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
 
-    # --- caminhos dos ficheiros ---
-    file_paths = [
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur1.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur2.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur3.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur4.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur5.fif",
-    ]
-    names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
-
-    dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1, 6)]
-    dur_files = [
-        x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-    ]
-
-    raw_concatenated = run_train_ica(
-        file_paths=file_paths,
+    run_train_ica(
+        raws_annotated=raws_annotated,
         out_paths=out_paths,
         subject=subject,
         names=names,
     )
-
 
 # %%
 
@@ -290,7 +280,9 @@ def run_apply_ica(
 
     raws_ica_apply = []  # -----> tens de mudar o nome
 
-    with open(out_paths["docs"] / f"{subject}_ica_comps_to_remove.json") as f:
+    with open(
+        out_paths["docs"] / "Preproc" / "03_ica" / f"{subject}_ica_comps_to_remove.json"
+    ) as f:
         final = json.load(f)
 
     # Obter picks corretos (lista de ints)
@@ -348,10 +340,12 @@ def run_apply_ica(
     # - Final ICA-cleaned dataset
     # - HTML report documenting removed components
 
-    report.save(out_paths["docs"] / "03_ica_completed_report.html", overwrite=True)
+    report.save(
+        out_paths["docs_03_ica"] / "03_ica_completed_report.html", overwrite=True
+    )
 
     raw_concat.save(
-        out_paths["03_ica"] / f"{subject}_03_ica_concat.fif", overwrite=True
+        out_paths["03_ica"] / f"{subject}_03_ica_concat_raw.fif", overwrite=True
     )
 
     plt.close("all")
