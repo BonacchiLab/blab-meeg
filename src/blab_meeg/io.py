@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import mne
+from mne.io import base
 from mne.utils.misc import files
 
 
@@ -95,9 +96,7 @@ def get_dur_files_from_sname(sname: str, base_dir: Path) -> list[Path]:
     return dur_files
 
 
-def get_subject_calibration_crosstalk_coreg_files(
-    sname: str, base_dir: Path
-) -> tuple[Path | None, ...]:
+def get_subject_calibration_crosstalk_coreg_files(sname: str, base_dir: Path) -> tuple[Path | None, ...]:
     """
     Returns the paths to the subject's calibration, crosstalk and coregistration files.
 
@@ -197,4 +196,11 @@ def save_raw(raw: mne.io.Raw, output_path: Path | str) -> None:
     print(f"✔ Raw File Saved in:\n{output_path}\n")
 
 
-def get_base_dir_from_raw(raw: mne.io.Raw) -> Path: ...
+def get_base_dir_from_raw(raw: mne.io.Raw, base_dirname: str = "COG_MEEG_EXP1_RELEASE") -> Path | None:
+    return next((parent for parent in raw.filenames[0].parents if parent.name == base_dirname), None)
+
+
+def get_dur_output_file_path_from_raw(raw: mne.io.Raw) -> Path:
+    base_dir = get_base_dir_from_raw(raw)
+    output_base_dir = get_output_base_dir(base_dir)
+    return output_base_dir.joinpath(raw.filenames[0].relative_to(base_dir))

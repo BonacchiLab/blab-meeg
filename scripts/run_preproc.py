@@ -9,7 +9,7 @@ import blab_meeg.io as bio
 
 # %% Define paths and files
 base_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
-base_dir = Path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE/")
+# base_dir = Path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE/")
 
 
 output_base_dir = bio.get_output_base_dir(base_dir)
@@ -23,7 +23,7 @@ raw_file = meeg_dur_files[0]  # f"{sname}_MEEG_1_DurR1.fif"
 
 # %% Load Raw Data
 raw = mne.io.read_raw(raw_file, preload=True)
-output_base_dir.joinpath(raw.filenames[0].relative_to(base_dir))
+output_durpath = bio.get_dur_output_file_path_from_raw(raw)
 
 # %% Remove Bad Channels
 
@@ -36,9 +36,7 @@ raw = pp.maxwell_filtering(raw, cal_file=cal_file, ct_file=ct_file)
 
 # %% Notch filter --> electrical noise removal
 
-raw = pp.notch_filtering(
-    raw, freqs=[50, 100, 150, 200, 250, 300], phase="zero", fir_design="firwin"
-)
+raw = pp.notch_filtering(raw, freqs=[50, 100, 150, 200, 250, 300], phase="zero", fir_design="firwin")
 
 
 # %% ICA to remove EOG and ECG artifacts
