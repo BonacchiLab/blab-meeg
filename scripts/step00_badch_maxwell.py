@@ -19,8 +19,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import json
-from mne.report import Report
-import gc
+
 
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) BadChannels and Maxwell function  #
@@ -32,9 +31,9 @@ def run_badch_maxwell(
     cal_file,
     ct_file,
     out_paths,
-    subject="sub",
-    names=None,
-    save_outputs=True,
+    names,
+    subject,
+    save_outputs,
 ):
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -43,10 +42,14 @@ def run_badch_maxwell(
 
     report = mne.Report(title=f"{subject} - Bad channels + Maxwell")
 
-    raws = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
-
-    if names is None:
-        names = [f"run_{i + 1}" for i in range(len(file_paths))]
+    raws = [
+        mne.io.read_raw_fif(
+            f,
+            preload=False,
+            allow_maxshield=True,
+        )
+        for f in file_paths
+    ]
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
     # 2.2) Automatic bad channel detection #
@@ -336,64 +339,63 @@ def run_badch_maxwell(
         for i, raw_sss in enumerate(raws_sss):
             file_path = (
                 out_paths["00_badch_maxwell"]
-                / f"{subject}_badch_maxwell_{names[i]}.fif"
+                / f"{subject}_00_badch_maxwell_{names[i]}_raw.fif"
             )
             raw_sss.save(file_path, overwrite=True)
 
-        report.save(out_paths["docs"] / "00_badch_maxwell_report.html", overwrite=True)
+        report.save(
+            out_paths["docs_00_badch_maxwell"] / "00_badch_maxwell_report.html",
+            overwrite=True,
+        )
 
         df_final = pd.concat(all_dfs, ignore_index=True)
-        df_final.to_csv(out_paths["docs"] / "00_badch_maxwell_scores.csv", index=False)
+        df_final.to_csv(
+            out_paths["docs_00_badch_maxwell"] / "00_badch_maxwell_scores.csv",
+            index=False,
+        )
 
-        with open(out_paths["docs"] / "00_badch_maxwell_info.json", "w") as f:
+        with open(
+            out_paths["docs_00_badch_maxwell"] / "00_badch_maxwell_info.json", "w"
+        ) as f:
             json.dump(all_preproc_info, f, indent=4)
 
-    # Cleanup
     plt.close("all")
-    del raws, raws_badch
-    gc.collect()
-
+    del report
+    del (
+        raws,
+        raws_badch,
+    )
     return raws_sss
 
 
 if __name__ == "__main__":
     # Meter a pasta do sujeito
-    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
     subject = "CA140"
 
-    sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+
+    # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    sub_indir = inroot_dir / subject
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
     out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
 
-    outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
+    raw_files = sorted(sub_dur_indir.glob("*DurR*_raw.fif"))
 
-    # --- caminhos dos ficheiros ---
-    file_paths = [
-        rf"{sub_dur_indir}\{subject}_MEEG_1_DurR1.fif",
-        rf"{sub_dur_indir}\{subject}_MEEG_1_DurR2.fif",
-        rf"{sub_dur_indir}\{subject}_MEEG_1_DurR3.fif",
-        rf"{sub_dur_indir}\{subject}_MEEG_1_DurR4.fif",
-        rf"{sub_dur_indir}\{subject}_MEEG_1_DurR5.fif",
-    ]
-    names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
+    names = [f"dur{i + 1}" for i in range(len(raw_files))]
 
-    dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1, 6)]
-    dur_files = [
-        x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-    ]
-
-    # ficheiros de calibração e cross-talk
-    cal_file = rf"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-calibration_meg.dat"
-    ct_file = rf"{sub_indir}\metadata\calibration_crosstalk_coreg\{subject}_ses-1_acq-crosstalk_meg.fif"
-
-    raws_sss = run_badch_maxwell(
-        file_paths=file_paths,
-        cal_file=cal_file,
-        ct_file=ct_file,
+    run_badch_maxwell(
+        file_paths=raw_files,
+        cal_file=sub_indir
+        / "metadata/calibration_crosstalk_coreg"
+        / f"{subject}_ses-1_acq-calibration_meg.dat",
+        ct_file=sub_indir
+        / "metadata/calibration_crosstalk_coreg"
+        / f"{subject}_ses-1_acq-crosstalk_meg.fif",
         out_paths=out_paths,
         subject=subject,
         names=names,
+        save_outputs=True,
     )
 
 

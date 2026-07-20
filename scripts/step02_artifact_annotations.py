@@ -19,12 +19,10 @@
 import mne
 from mne.preprocessing import annotate_muscle_zscore
 from mne import Annotations
-from mne.report import Report
 from pathlib import Path
 from paths import create_output_folders
 import pandas as pd
 import matplotlib.pyplot as plt
-import gc
 from blab_meeg.raw_utils import get_eog_ecg_name_dict
 
 
@@ -34,10 +32,10 @@ from blab_meeg.raw_utils import get_eog_ecg_name_dict
 
 
 def run_artifact_annotations(
-    file_paths,
+    raws_clean,
     out_paths,
-    subject="sub",
-    names=None,
+    subject,
+    names,
 ):
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -46,7 +44,7 @@ def run_artifact_annotations(
 
     report = mne.Report(title=f"{subject} - Artifact annotations")
 
-    raws_clean = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
+    # raws_clean = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
 
     if names is None:
         names = [f"run_{i + 1}" for i in range(len(file_paths))]
@@ -249,63 +247,54 @@ def run_artifact_annotations(
     for i, raw_annotated in enumerate(raws_annotated):
         file_path = (
             out_paths["02_artifact_annotations"]
-            / f"{subject}_02_artifact_annotations_{names[i]}.fif"
+            / f"{subject}_02_artifact_annotations_{names[i]}_raw.fif"
         )
         raw_annotated.save(file_path, overwrite=True)
 
     df_final = pd.concat(all_dfs, ignore_index=True)
     df_final.to_csv(
-        out_paths["docs"] / "02_artifact_annotations_times.csv", index=False
+        out_paths["docs_02_artifact_annotations"] / "02_artifact_annotations_times.csv",
+        index=False,
     )
 
     report.save(
-        out_paths["docs"] / "02_artifact_annotations_report.html", overwrite=True
+        out_paths["docs_02_artifact_annotations"]
+        / "02_artifact_annotations_report.html",
+        overwrite=True,
     )
 
     plt.close("all")
-
-    del raws_clean, raws_annotated
-
-    gc.collect()
-
-    # return raws_annotated
+    del report
+    del raws_clean
+    return raws_annotated
 
 
 if __name__ == "__main__":
     # Meter a pasta do sujeito
-    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-    subject = "CB013"
+    subject = "CB072"
 
-    sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+
+    # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    sub_indir = inroot_dir / subject
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
     out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
 
-    outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
-    sub_dur_outdir = Path(
-        rf"{outroot_dir}\{subject}\{subject}_Preproc\01_prep_pipeline"
+    raw_files = sorted(sub_dur_indir.glob("*DurR*_raw.fif"))
+
+    names = [f"dur{i + 1}" for i in range(len(raw_files))]
+
+    file_paths = sorted(
+        out_paths["01_prep_pipeline"].glob(f"{subject}_01_prep_pipeline_*_raw.fif")
     )
+    raws_clean = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
 
-    # --- caminhos dos ficheiros ---
-    file_paths = [
-        rf"{sub_dur_outdir}\{subject}_01_prep_pipeline_dur1.fif",
-        rf"{sub_dur_outdir}\{subject}_01_prep_pipeline_dur2.fif",
-        rf"{sub_dur_outdir}\{subject}_01_prep_pipeline_dur3.fif",
-        rf"{sub_dur_outdir}\{subject}_01_prep_pipeline_dur4.fif",
-        rf"{sub_dur_outdir}\{subject}_01_prep_pipeline_dur5.fif",
-    ]
-    names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
-
-    dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1, 6)]
-    dur_files = [
-        x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-    ]
-
-    raws_annotated = run_artifact_annotations(
-        file_paths=file_paths,
+    run_artifact_annotations(
+        raws_clean=raws_clean,
         out_paths=out_paths,
         subject=subject,
-        # names=names,
+        names=names,
     )
 
 # %%

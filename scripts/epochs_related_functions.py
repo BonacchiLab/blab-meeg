@@ -132,7 +132,7 @@ def create_metadata(epochs, events, subject):
         metadata_rows.append(
             {
                 "sti_id": stim_code,
-                "subject": {subject},
+                "subject": subject,
                 "category": category(stim_code),
                 "orientation": ori,
                 "duration": dur,
@@ -147,4 +147,4 @@ def create_metadata(epochs, events, subject):
     metadata = pd.DataFrame(metadata_rows)
     epochs.metadata = metadata
 
-    return epochs, metadata
+    return epochs
