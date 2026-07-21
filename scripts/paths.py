@@ -28,6 +28,10 @@ def create_output_folders(
         "Phase3",
     ]
 
+    phase3_analysis_dirs = [
+        "Sensor_FDR",
+    ]
+
     epoch_dirs = [
         "Phase1_onset_-100_500ms",
         "Phase2_onset_-200_2000ms",
@@ -53,7 +57,13 @@ def create_output_folders(
     for folder in report_phases:
         (analysis_docs / folder).mkdir(parents=True, exist_ok=True)
 
-    preproc_root = subject_root / "Preproc"
+    phase3_root = analysis_docs / "Phase3"
+    #
+    for folder in phase3_analysis_dirs:
+        (phase3_root / folder).mkdir(parents=True, exist_ok=True)
+        preproc_root = subject_root / "Preproc"
+
+    sensor_fdr_root = phase3_root / "Sensor_FDR"
 
     for folder in preproc_dirs:
         (preproc_root / folder).mkdir(parents=True, exist_ok=True)
@@ -73,6 +83,7 @@ def create_output_folders(
         "analysis_docs": analysis_docs,
         "preproc": preproc_root,
         "epochs": epochs_root,
+        "sensor_fdr": sensor_fdr_root,
         **{folder: preproc_root / folder for folder in preproc_dirs},
         **{f"docs_{folder}": docs_preproc / folder for folder in preproc_dirs},
         "docs_epochs": docs_preproc / "04_epochs",

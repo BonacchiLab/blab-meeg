@@ -36,6 +36,7 @@ def run_artifact_annotations(
     out_paths,
     subject,
     names,
+    save_outputs,
 ):
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -243,28 +244,29 @@ def run_artifact_annotations(
     # - Raws
     # - Csv
     # - Report
+    if save_outputs:
+        for i, raw_annotated in enumerate(raws_annotated):
+            file_path = (
+                out_paths["02_artifact_annotations"]
+                / f"{subject}_02_artifact_annotations_{names[i]}_raw.fif"
+            )
+            raw_annotated.save(file_path, overwrite=True)
 
-    for i, raw_annotated in enumerate(raws_annotated):
-        file_path = (
-            out_paths["02_artifact_annotations"]
-            / f"{subject}_02_artifact_annotations_{names[i]}_raw.fif"
+        df_final = pd.concat(all_dfs, ignore_index=True)
+        df_final.to_csv(
+            out_paths["docs_02_artifact_annotations"]
+            / "02_artifact_annotations_times.csv",
+            index=False,
         )
-        raw_annotated.save(file_path, overwrite=True)
 
-    df_final = pd.concat(all_dfs, ignore_index=True)
-    df_final.to_csv(
-        out_paths["docs_02_artifact_annotations"] / "02_artifact_annotations_times.csv",
-        index=False,
-    )
-
-    report.save(
-        out_paths["docs_02_artifact_annotations"]
-        / "02_artifact_annotations_report.html",
-        overwrite=True,
-    )
+        report.save(
+            out_paths["docs_02_artifact_annotations"]
+            / "02_artifact_annotations_report.html",
+            overwrite=True,
+        )
+        del report
 
     plt.close("all")
-    del report
     del raws_clean
     return raws_annotated
 
@@ -295,6 +297,8 @@ if __name__ == "__main__":
         out_paths=out_paths,
         subject=subject,
         names=names,
+        save_outputs=True,
     )
+
 
 # %%

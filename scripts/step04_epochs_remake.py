@@ -172,6 +172,16 @@ def run_epoch_offset_creator(subject, method, crop):
     epochs_1000.shift_time(tshift=-1.0, relative=True)
     epochs_1500.shift_time(tshift=-1.5, relative=True)
 
+    baseline_pairs = [
+        (epochs_500, (-0.7, -0.5)),
+        (epochs_1000, (-1.2, -1.0)),
+        (epochs_1500, (-1.7, -1.5)),
+    ]
+
+    for ep, baseline in baseline_pairs:
+        ep.baseline = None
+        ep.apply_baseline(baseline)
+
     if crop:
         for ep in (epochs_500, epochs_1000, epochs_1500):
             ep.crop(tmin=ep.tmin, tmax=0.5)
@@ -192,7 +202,7 @@ def run_epoch_offset_creator(subject, method, crop):
 
 
 if __name__ == "__main__":
-    subject = "CA140"
+    subject = "CA124"
     crop = True
 
     for method in ("mag", "grad", "eeg"):

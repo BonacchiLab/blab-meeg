@@ -35,6 +35,8 @@ def run_train_ica(
     out_paths,
     subject,
     names,
+    save_outputs,
+    has_eeg=True,
 ):
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -127,17 +129,27 @@ def run_train_ica(
     # automatically identified for later inspection and
     # removal.
 
-    ica_eeg = ICA(
-        n_components=0.99,
-        method="fastica",
-        random_state=97,
-        max_iter="auto",
-    )
+    ica_eeg = None
+    eog_eeg, ecg_eeg = [], []
+    eog_scores_eeg, ecg_scores_eeg = None, None
 
-    ica_eeg.fit(raw_ica, picks="eeg", reject_by_annotation=True)
+    if has_eeg:
+        print("A treinar ICA EEG...")
 
-    eog_eeg, eog_scores_eeg = ica_eeg.find_bads_eog(raw_ica, ch_name=eog_ch_names)
-    ecg_eeg, ecg_scores_eeg = ica_eeg.find_bads_ecg(raw_ica, ch_name=ecg_ch_name)
+        ica_eeg = ICA(
+            n_components=0.99,
+            method="fastica",
+            random_state=97,
+            max_iter="auto",
+        )
+
+        ica_eeg.fit(raw_ica, picks="eeg", reject_by_annotation=True)
+
+        eog_eeg, eog_scores_eeg = ica_eeg.find_bads_eog(raw_ica, ch_name=eog_ch_names)
+        ecg_eeg, ecg_scores_eeg = ica_eeg.find_bads_ecg(raw_ica, ch_name=ecg_ch_name)
+
+    else:
+        print("Sem EEG - a saltar ICA EEG.")
 
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
     # 3a.6) Quality control report generation  #
@@ -151,18 +163,22 @@ def run_train_ica(
     # suggested for removal.
 
     fig_ica_meg_comp = ica_meg.plot_components(show=False)
-    fig_ica_eeg_comp = ica_eeg.plot_components(show=False)
     report.add_figure(fig_ica_meg_comp, title="ICA MEG components")
-    report.add_figure(fig_ica_eeg_comp, title="ICA EEG components")
+
+    if ica_eeg is not None:
+        fig_ica_eeg_comp = ica_eeg.plot_components(show=False)
+        report.add_figure(fig_ica_eeg_comp, title="ICA EEG components")
 
     fig_ica_eog_meg_scores = ica_meg.plot_scores(eog_scores_meg, show=False)
-    fig_ica_eog_eeg_scores = ica_eeg.plot_scores(eog_scores_eeg, show=False)
     fig_ica_ecg_meg_scores = ica_meg.plot_scores(ecg_scores_meg, show=False)
-    fig_ica_ecg_eeg_scores = ica_eeg.plot_scores(ecg_scores_eeg, show=False)
     report.add_figure(fig_ica_eog_meg_scores, title="ICA EOG MEG components")
-    report.add_figure(fig_ica_eog_eeg_scores, title="ICA EOG EEG components")
     report.add_figure(fig_ica_ecg_meg_scores, title="ICA ECG MEG components")
-    report.add_figure(fig_ica_ecg_eeg_scores, title="ICA ECG EEG components")
+
+    if ica_eeg is not None:
+        fig_ica_eog_eeg_scores = ica_eeg.plot_scores(eog_scores_eeg, show=False)
+        fig_ica_ecg_eeg_scores = ica_eeg.plot_scores(ecg_scores_eeg, show=False)
+        report.add_figure(fig_ica_eog_eeg_scores, title="ICA EOG EEG components")
+        report.add_figure(fig_ica_ecg_eeg_scores, title="ICA ECG EEG components")
 
     # *#*#*#*#*#*#*#*#*#*#
     # 3a.7) Save outputs #
@@ -174,38 +190,47 @@ def run_train_ica(
     # - JSON file containing suggested components
     # - HTML quality control report
 
-    ica_meg.save(out_paths["03_ica"] / f"{subject}_ica_meg.fif", overwrite=True)
-    ica_eeg.save(out_paths["03_ica"] / f"{subject}_ica_eeg.fif", overwrite=True)
+    if save_outputs:
+        ica_meg.save(out_paths["03_ica"] / f"{subject}_ica_meg.fif", overwrite=True)
 
-    file_path = out_paths["03_ica"] / f"{subject}_03_ica_train_file.fif"
-    raw_ica.save(file_path, overwrite=True)
+        if ica_eeg is not None:
+            ica_eeg.save(
+                out_paths["03_ica"] / f"{subject}_ica_eeg.fif",
+                overwrite=True,
+            )
 
-    with open(
-        out_paths["docs_03_ica"] / f"{subject}_ica_comps_to_remove.json", "w"
-    ) as f:
-        json.dump(
-            {
-                "meg": {
-                    "auto": {
-                        "eog": [int(x) for x in eog_meg],
-                        "ecg": [int(x) for x in ecg_meg],
+        file_path = out_paths["03_ica"] / f"{subject}_03_ica_train_file.fif"
+        raw_ica.save(file_path, overwrite=True)
+
+        with open(
+            out_paths["docs_03_ica"] / f"{subject}_ica_comps_to_remove.json", "w"
+        ) as f:
+            json.dump(
+                {
+                    "meg": {
+                        "auto": {
+                            "eog": [int(x) for x in eog_meg],
+                            "ecg": [int(x) for x in ecg_meg],
+                        },
+                        "manual": {"eog": [], "ecg": []},
                     },
-                    "manual": {"eog": [], "ecg": []},
+                    "eeg": {
+                        "auto": {
+                            "eog": [int(x) for x in eog_eeg],
+                            "ecg": [int(x) for x in ecg_eeg],
+                        },
+                        "manual": {"eog": [], "ecg": []},
+                    }
+                    if ica_eeg is not None
+                    else None,
                 },
-                "eeg": {
-                    "auto": {
-                        "eog": [int(x) for x in eog_eeg],
-                        "ecg": [int(x) for x in ecg_eeg],
-                    },
-                    "manual": {"eog": [], "ecg": []},
-                },
-            },
-            f,
-            indent=4,
-        )
+                f,
+                indent=4,
+            )
 
-    report.save(out_paths["docs_03_ica"] / "03_ica_report.html", overwrite=True)
-    del report
+        report.save(out_paths["docs_03_ica"] / "03_ica_report.html", overwrite=True)
+
+        del report
     plt.close("all")
 
     del ica_meg, ica_eeg, raw_ica
@@ -237,6 +262,7 @@ if __name__ == "__main__":
         out_paths=out_paths,
         subject=subject,
         names=names,
+        save_outputs=True,
     )
 
 # %%

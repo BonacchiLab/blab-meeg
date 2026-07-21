@@ -1,3 +1,4 @@
+# %%
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # Preprocessing Pipeline part 1  #
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -28,22 +29,6 @@ from step03_ica import run_train_ica
 from THE_DELETER import the_deleter
 
 
-"""# --- caminhos dos ficheiros ---
-file_paths = [
-    rf"{sub_dur_indir}\{subject}_MEEG_1_DurR1_raw.fif",
-    rf"{sub_dur_indir}\{subject}_MEEG_1_DurR2_raw.fif",
-    rf"{sub_dur_indir}\{subject}_MEEG_1_DurR3_raw.fif",
-    rf"{sub_dur_indir}\{subject}_MEEG_1_DurR4_raw.fif",
-    rf"{sub_dur_indir}\{subject}_MEEG_1_DurR5_raw.fif",
-]
-names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
-
-
-dur_files = [
-    x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-]"""
-
-
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Full preprocessing part 1  #
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -59,6 +44,15 @@ def run_full_pipeline_part1(subject):
     # Locate all raw duration runs and create
     # standardized run names.
 
+    # subjects that didn't pass the qc --> professor tava a pensar em fazer para ele ir
+    # buscar a tabela mas sao so 3 e eu estou me a sentir preguiçoso
+
+    EXCLUDED_SUBJECTS = {"CA101", "CA108", "CB082"}
+
+    if subject in EXCLUDED_SUBJECTS:
+        print(f"{subject}: excluído pelo QC oficial. A saltar sujeito.")
+        return
+
     inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
 
     # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
@@ -71,6 +65,12 @@ def run_full_pipeline_part1(subject):
 
     names = [f"dur{i + 1}" for i in range(len(raw_files))]
 
+    raw_info = mne.io.read_raw_fif(raw_files[0], preload=False)
+    has_eeg = len(mne.pick_types(raw_info.info, eeg=True)) > 0
+    raw_info.close()
+
+    print(f"{subject}: has_eeg = {has_eeg}")
+
     # *#*#*#*#*#*#*#*#*#*#*#*#*#
     # 2.2) Maxwell filtering  #
     # *#*#*#*#*#*#*#*#*#*#*#*#*#
@@ -78,30 +78,36 @@ def run_full_pipeline_part1(subject):
     # Separation (SSS), interpolate bad channels
     # and aligns runs to a common head position.
 
-    raws_sss = run_badch_maxwell(
-        file_paths=raw_files,
-        cal_file=sub_indir
-        / "metadata/calibration_crosstalk_coreg"
-        / f"{subject}_ses-1_acq-calibration_meg.dat",
-        ct_file=sub_indir
-        / "metadata/calibration_crosstalk_coreg"
-        / f"{subject}_ses-1_acq-crosstalk_meg.fif",
-        out_paths=out_paths,
-        subject=subject,
-        names=names,
-        save_outputs=True,
-    )
+    use_maxwell = False
 
-    # sss_files = [
-    #    out_paths["00_badch_maxwell"] / f"{subject}_badch_maxwell_{n}_raw.fif"
-    #    for n in names
-    # ]
+    raws_sss = None
 
-    if not raws_sss:
-        file_paths = sorted(
+    if use_maxwell:
+        raws_sss = run_badch_maxwell(
+            file_paths=raw_files,
+            cal_file=sub_indir
+            / "metadata/calibration_crosstalk_coreg"
+            / f"{subject}_ses-1_acq-calibration_meg.dat",
+            ct_file=sub_indir
+            / "metadata/calibration_crosstalk_coreg"
+            / f"{subject}_ses-1_acq-crosstalk_meg.fif",
+            out_paths=out_paths,
+            subject=subject,
+            names=names,
+            save_outputs=True,
+        )
+    if raws_sss is None:
+        sss_files = sorted(
             out_paths["00_badch_maxwell"].glob(f"{subject}_00_badch_maxwell_*_raw.fif")
         )
-        raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in file_paths]
+
+        if len(sss_files) > 0:
+            print(f"{subject}: a carregar ficheiros SSS existentes.")
+            raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in sss_files]
+
+    if raws_sss is None:
+        print(f"{subject}: não existem ficheiros SSS - a usar raws originais.")
+        raws_sss = [mne.io.read_raw_fif(f, preload=False) for f in raw_files]
 
     # *#*#*#*#*#*#
     # 2.3) PREP  #
@@ -110,15 +116,22 @@ def run_full_pipeline_part1(subject):
     # line-noise removal, referencing and bad
     # channel interpolation.
 
-    raws_clean = run_prep_pipeline(
-        raws_sss=raws_sss,
-        out_paths=out_paths,
-        subject=subject,
-        names=names,
-        save_outputs=True,
-    )
+    if has_eeg:
+        raws_clean = run_prep_pipeline(
+            raws_sss=raws_sss,
+            out_paths=out_paths,
+            subject=subject,
+            names=names,
+            save_outputs=True,
+        )
 
-    the_deleter(out_paths=out_paths, folder="00_badch_maxwell")
+        the_deleter(out_paths=out_paths, folder="00_badch_maxwell")
+
+    else:
+        print(f"{subject}: sem EEG - a saltar PREP pipeline.")
+        raws_clean = raws_sss
+
+    # the_deleter(out_paths=out_paths, folder="00_badch_maxwell")
 
     # raws_clean = None
     if not raws_clean:
@@ -149,6 +162,7 @@ def run_full_pipeline_part1(subject):
         out_paths=out_paths,
         subject=subject,
         names=names,
+        save_outputs=True,
     )
 
     the_deleter(out_paths=out_paths, folder="01_prep_pipeline")
@@ -179,10 +193,14 @@ def run_full_pipeline_part1(subject):
         out_paths=out_paths,
         subject=subject,
         names=names,
+        save_outputs=True,
+        has_eeg=has_eeg,
     )
 
     print(f"{subject} preprocessing part 1 completed.")
 
 
 if __name__ == "__main__":
-    run_full_pipeline_part1("CA140")
+    run_full_pipeline_part1("CA101")
+
+# %%
