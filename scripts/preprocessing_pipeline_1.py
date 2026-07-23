@@ -53,7 +53,9 @@ def run_full_pipeline_part1(subject):
         print(f"{subject}: excluído pelo QC oficial. A saltar sujeito.")
         return
 
-    inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+    # inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+    inroot_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
+    
 
     # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
     sub_indir = inroot_dir / subject

@@ -24,7 +24,8 @@ from step03_ica import run_apply_ica
 from step04_epochs_remake import run_epochs_onset_creator, run_epoch_offset_creator
 from THE_DELETER import the_deleter
 
-inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+# inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+inroot_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
 
 # select subject
 subject = "CB013"
