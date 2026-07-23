@@ -202,7 +202,7 @@ def run_epoch_offset_creator(subject, method, crop):
 
 
 if __name__ == "__main__":
-    subject = "CA124"
+    subject = "CB013"
     crop = True
 
     for method in ("mag", "grad", "eeg"):

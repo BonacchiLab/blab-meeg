@@ -1,4 +1,7 @@
 # %%
+# ================================================================
+# IMPORT ROOM
+# ================================================================
 import numpy as np
 import mne
 from scipy.stats import t
@@ -8,13 +11,15 @@ from mne.report import Report
 import matplotlib.pyplot as plt
 import sys
 
-# adiciona a pasta 'scripts' ao Python path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-
 from paths import create_output_folders
 from mne.epochs import BaseEpochs
 
 
+# %%
+# ================================================================
+# Primeira try cluster based --> mixed
+# ================================================================
 def run_cluster_permutation(
     epochs,
     method,
@@ -192,7 +197,7 @@ def run_cluster_permutation(
         print(f"Sujeitos incluídos na análise: {n_subjects_used}")
 
         # Empilhar: (n_subjects, n_channels, n_times) -> (n_subjects, n_times, n_channels)
-        X = np.array(all_diffs)
+        X = np.array(all_diffs, dtype=np.float64)
         times = epo_a.times  # qualquer sujeito serve, a janela é a mesma
         X = np.transpose(X, (0, 2, 1))
         print(f"X shape (group): {X.shape}")
@@ -234,7 +239,7 @@ def run_cluster_permutation(
         if mask.shape != (len(times), len(ch_names)):
             # Caso venha transposta, ajusta (precaução)
             mask = mask.T
-        times_idx, chans_idx = np.where(mask)
+        chans_idx, times_idx = np.where(mask)
         t_start = times[times_idx.min()]
         t_stop = times[times_idx.max()]
         print(
@@ -306,9 +311,6 @@ def run_cluster_permutation(
     return results
 
 
-# ================================================================
-# EXEMPLO DE USO
-# ================================================================
 if __name__ == "__main__":
     subject = "CA124"
     method = "mag"
@@ -361,22 +363,8 @@ if __name__ == "__main__":
 
     print("\\nAnálise terminada.")
 
+
 # %%
-# %%
-import numpy as np
-import mne
-from scipy.stats import t
-from mne.stats import spatio_temporal_cluster_test, spatio_temporal_cluster_1samp_test
-from pathlib import Path
-from mne.report import Report
-import matplotlib.pyplot as plt
-import sys
-
-# Ajusta o path se necessário
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-from paths import create_output_folders
-
-
 # ============================================================
 #  Funções auxiliares (privadas)
 # ============================================================
@@ -406,12 +394,15 @@ def _make_report(
     baseline_title,
     n_permutations,
     p_threshold,
+    t_threshold,
+    H0,
+    cluster_p_values,
     good_clusters,
     group,
     report_path,
 ):
     """Gera um relatório HTML com a figura e os dados do teste."""
-    report_path = report_path or "cluster_report.html"
+    # report_path = report_path or "cluster_report.html"
     rep = Report(verbose=False)
 
     # Ajustar título
@@ -421,37 +412,183 @@ def _make_report(
     else:
         titulo += " (sujeito único)"
 
-    # Máscara significativa combinada
-    sig_mask = np.zeros(mask.shape, dtype=bool)
-    for idx in good_clusters:
-        sig_mask |= mask[idx]
-
-    # Preparar máscara para plot (n_channels, n_times)
-    if sig_mask.shape == (len(times), len(ch_names)):
-        sig_mask_plot = sig_mask.T
-    else:
-        sig_mask_plot = sig_mask
-
-    # Figura (usa mne.viz.plot_evoked para compatibilidade com mask)
-    fig = mne.viz.plot_evoked(
-        evoked,
-        titles=dict(eeg=titulo),
+    # Figura do ERP
+    fig = evoked.plot(
+        titles=titulo,
         spatial_colors=True,
-        mask=sig_mask_plot,
-        mask_style="contour",
-        mask_alpha=0.3,
         show=False,
     )
 
-    html_summary = (
-        f"<h2>{titulo}</h2>"
-        f"<p>Método: {method} | Janela: {times[0] * 1000:.0f}–{times[-1] * 1000:.0f} ms</p>"
-        f"<p>Permutações: {n_permutations}</p>"
-        f"<p>Clusters significativos (p<{p_threshold}): {len(good_clusters)}</p>"
-    )
-    rep.add_html(html_summary, title="Resumo")
-    rep.add_figure(fig, title="Evocado com máscara")
-    rep.save(report_path, open_browser=False)
+    ax = fig.axes[0]
+
+    # Sombrear os intervalos temporais significativos
+    for idx in good_clusters:
+        cluster_mask = mask[idx]
+
+        # Garantir orientação (n_channels, n_times)
+        if cluster_mask.shape == (len(times), len(ch_names)):
+            cluster_mask = cluster_mask.T
+        elif cluster_mask.shape != (len(ch_names), len(times)):
+            raise RuntimeError(f"Forma inesperada da máscara: {cluster_mask.shape}")
+
+        _, times_idx = np.where(cluster_mask)
+
+        t_start = times[times_idx.min()]
+        t_stop = times[times_idx.max()]
+
+        ax.axvspan(t_start, t_stop, color="red", alpha=0.25)
+
+    # Construir resumo dos clusters
+    cluster_rows = ""
+
+    for idx in good_clusters:
+        cluster_mask = mask[idx]
+
+        # Garantir orientação (n_channels, n_times)
+        if cluster_mask.shape == (len(times), len(ch_names)):
+            cluster_mask = cluster_mask.T
+        elif cluster_mask.shape != (len(ch_names), len(times)):
+            raise RuntimeError(f"Forma inesperada da máscara: {cluster_mask.shape}")
+
+        chans_idx, times_idx = np.where(cluster_mask)
+
+        t_start = times[times_idx.min()]
+        t_stop = times[times_idx.max()]
+        n_ch = len(np.unique(chans_idx))
+
+        cluster_rows += (
+            f"<tr>"
+            f"<td>{idx}</td>"
+            f"<td>{cluster_p_values[idx]:.4f}</td>"
+            f"<td>{t_start * 1000:.0f}–{t_stop * 1000:.0f} ms</td>"
+            f"<td>{n_ch}</td>"
+            f"</tr>"
+        )
+
+    html_summary = f"""
+    <h2>{titulo}</h2>
+
+    <p><b>Método:</b> {method}</p>
+    <p><b>Janela temporal:</b> {times[0] * 1000:.0f}–{times[-1] * 1000:.0f} ms</p>
+    <p><b>Permutações:</b> {n_permutations}</p>
+    <p><b>Threshold t:</b> {t_threshold:.4f}</p>
+    <p><b>Distribuição H0:</b> média={H0.mean():.2f}, SD={H0.std():.2f}</p>
+    <p><b>Clusters significativos (p<{p_threshold}):</b> {len(good_clusters)}</p>
+
+    <h3>Resumo dos clusters</h3>
+
+    <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse;">
+    <tr style="background-color:#f0f0f0;">
+        <th>Cluster</th>
+        <th>p-value</th>
+        <th>Janela temporal</th>
+        <th>N canais</th>
+    </tr>
+    {cluster_rows}
+    </table>
+    """
+    # Adicionar resumo e ERP ao relatório
+    rep.add_html(html_summary, title="Resumo estatístico")
+    rep.add_figure(fig, title="ERP com clusters")
+
+    # Topomapas dos clusters
+    for idx in good_clusters:
+        cluster_mask = mask[idx]
+
+        # Garantir orientação (n_channels, n_times)
+        if cluster_mask.shape == (len(times), len(ch_names)):
+            cluster_mask = cluster_mask.T
+        elif cluster_mask.shape != (len(ch_names), len(times)):
+            raise RuntimeError(f"Forma inesperada da máscara: {cluster_mask.shape}")
+
+        chans_idx, times_idx = np.where(cluster_mask)
+
+        t_start = times[times_idx.min()]
+        t_stop = times[times_idx.max()]
+        t_mean = (t_start + t_stop) / 2
+
+        unique_chans = np.unique(chans_idx)
+
+        # ---- valores do topomap no tempo médio ----
+        time_idx = np.argmin(np.abs(evoked.times - t_mean))
+        topo_vals = evoked.data[:, time_idx]
+
+        # máscara dos canais do cluster
+        sensor_mask = np.zeros(len(ch_names), dtype=bool)
+        sensor_mask[unique_chans] = True
+
+        # grads: reduzir 204 -> 102 pares
+        if method == "grad":
+            sensor_mask_plot = sensor_mask.reshape(-1, 2).any(axis=1)
+        else:
+            sensor_mask_plot = sensor_mask
+
+        # figura maior
+        fig_topo, ax_topo = plt.subplots(figsize=(12, 10))
+
+        # desenhar topomap
+        im, _ = mne.viz.plot_topomap(
+            topo_vals,
+            evoked.info,
+            mask=sensor_mask_plot,
+            mask_params=dict(
+                marker="o",
+                markersize=10,
+                markerfacecolor="w",
+                markeredgecolor="k",
+                linewidth=1.5,
+            ),
+            contours=0,
+            axes=ax_topo,
+            show=False,
+        )
+
+        # colorbar
+        plt.colorbar(im, ax=ax_topo, shrink=0.8)
+
+        # ---- nomes dos canais (estilo do teu código antigo) ----
+        layout = mne.find_layout(evoked.info)
+        pos = layout.pos[:, :2].copy()
+
+        # centralizar
+        pos -= np.mean(pos, axis=0)
+
+        # esticar horizontalmente
+        scale_x = 0.24
+        scale_y = 0.21
+
+        pos[:, 0] = pos[:, 0] / np.max(np.abs(pos[:, 0])) * scale_x
+        pos[:, 1] = pos[:, 1] / np.max(np.abs(pos[:, 1])) * scale_y
+
+        # adicionar nomes dos canais
+        for i, ch_name in enumerate(evoked.ch_names):
+            x, y = pos[i]
+            ax_topo.text(
+                x,
+                y,
+                ch_name,
+                ha="center",
+                va="center",
+                fontsize=6,
+                color="black",
+            )
+
+        cluster_label = (
+            f"Cluster {idx} | p={cluster_p_values[idx]:.4f} | "
+            f"{t_start * 1000:.0f}–{t_stop * 1000:.0f} ms | "
+            f"{len(unique_chans)} canais"
+        )
+
+        rep.add_figure(
+            fig_topo,
+            title=cluster_label,
+            section="Topomapas dos clusters",
+        )
+
+        plt.close(fig_topo)
+
+    report_path = r"C:\Users\tomas\Desktop\random_report1.html"
+    rep.save(report_path, open_browser=True, overwrite=True)
     print(f"\nRelatório guardado em: {report_path}")
     plt.close(fig)
     return report_path
@@ -465,7 +602,7 @@ def _print_clusters(clusters, cluster_p_values, p_threshold, times, ch_names):
         mask = clusters[idx]
         if mask.shape != (len(times), len(ch_names)):
             mask = mask.T
-        times_idx, chans_idx = np.where(mask)
+        chans_idx, times_idx = np.where(mask)
         t_start = times[times_idx.min()]
         t_stop = times[times_idx.max()]
         print(
@@ -476,6 +613,7 @@ def _print_clusters(clusters, cluster_p_values, p_threshold, times, ch_names):
     return good_clusters
 
 
+# %%
 # ============================================================
 #  1) Sujeito único – 1 amostra (cond vs 0)
 # ============================================================
@@ -506,12 +644,14 @@ def single_subject_1sample(
 
     # 2. Dados (n_trials, n_times, n_channels)
     data = epochs_cond.get_data()
-    X = np.transpose(data, (0, 2, 1))
+    X = np.transpose(data, (0, 2, 1)).astype(np.float64)
 
     # 3. Adjacência e threshold
     adjacency, _ = mne.channels.find_ch_adjacency(epochs_cond.info, ch_type=method)
     df = len(data) - 1
     t_threshold = _compute_t_threshold(df, p_threshold)
+
+    print("threshold =", t_threshold)
 
     # 4. Teste
     T_obs, clusters, cluster_p_values, H0 = spatio_temporal_cluster_1samp_test(
@@ -547,6 +687,9 @@ def single_subject_1sample(
             baseline_title=f"{cond} vs 0",
             n_permutations=n_permutations,
             p_threshold=p_threshold,
+            t_threshold=t_threshold,
+            H0=H0,
+            cluster_p_values=cluster_p_values,
             good_clusters=good_clusters,
             group=False,
             report_path=report_path,
@@ -572,6 +715,32 @@ def single_subject_1sample(
     }
 
 
+if __name__ == "__main__":
+    subject = "CA140"
+    method = "grad"
+    dur = "500"
+    out_paths = create_output_folders(subject)
+
+    epochs_path = (
+        out_paths["phase3_epochs"]
+        / f"{subject}_04_epochs_offset_{method}_offset{dur}_epo.fif"
+    )
+    epochs = mne.read_epochs(epochs_path, preload=True)
+
+    single_subject_1sample(
+        epochs=epochs,
+        method=method,
+        cond="faces",
+        compare="category",
+        extra_query="duration == 'dur_500ms'",
+        tmin=0.0,
+        tmax=0.5,
+        report=True,
+        # report_path="faces_vs_0_subj.html",
+    )
+
+
+# %%
 # ============================================================
 #  2) Sujeito único – 2 amostras (cond A vs cond B)
 # ============================================================
@@ -581,11 +750,11 @@ def single_subject_2sample(
     cond_a,
     cond_b,
     compare,
+    p_threshold,
     extra_query=None,
     tmin=0.0,
     tmax=0.5,
     n_permutations=1000,
-    p_threshold=0.05,
     report=False,
     report_path=None,
 ):
@@ -608,8 +777,8 @@ def single_subject_2sample(
     # 2. Dados (n_trials, n_times, n_channels)
     data_a = epochs_a.get_data()
     data_b = epochs_b.get_data()
-    X_a = np.transpose(data_a, (0, 2, 1))
-    X_b = np.transpose(data_b, (0, 2, 1))
+    X_a = np.transpose(data_a, (0, 2, 1)).astype(np.float64)
+    X_b = np.transpose(data_b, (0, 2, 1)).astype(np.float64)
 
     # 3. Adjacência e threshold
     adjacency, _ = mne.channels.find_ch_adjacency(epochs_a.info, ch_type=method)
@@ -652,6 +821,9 @@ def single_subject_2sample(
             baseline_title=f"{cond_a} vs {cond_b}",
             n_permutations=n_permutations,
             p_threshold=p_threshold,
+            t_threshold=t_threshold,
+            H0=H0,
+            cluster_p_values=cluster_p_values,
             good_clusters=good_clusters,
             group=False,
             report_path=report_path,
@@ -677,6 +849,35 @@ def single_subject_2sample(
     }
 
 
+if __name__ == "__main__":
+    subject = "CA140"
+    method = "grad"
+    dur = "1500"
+    out_paths = create_output_folders(subject)
+
+    epochs_path = (
+        out_paths["phase3_epochs"]
+        / f"{subject}_04_epochs_offset_{method}_offset{dur}_epo.fif"
+    )
+    epochs = mne.read_epochs(epochs_path, preload=True)
+
+    single_subject_2sample(
+        epochs=epochs,
+        method=method,
+        cond_a="faces",
+        cond_b="objects",
+        compare="category",
+        extra_query=f"duration == 'dur_{dur}ms'",
+        tmin=0.0,
+        tmax=0.5,
+        n_permutations=1000,
+        p_threshold=0.01,
+        report=True,
+        report_path=None,
+    )
+
+
+# %%
 # ============================================================
 #  3) Grupo – 1 amostra (cond vs 0)
 # ============================================================
@@ -724,7 +925,7 @@ def group_1sample(
         raise RuntimeError(f"Poucos sujeitos válidos: {n_subjects_used}.")
 
     print(f"Sujeitos incluídos: {n_subjects_used}")
-    X = np.array(all_evoked)  # (n_subjects, n_channels, n_times)
+    X = np.array(all_evoked, dtype=np.float64)  # (n_subjects, n_channels, n_times)
     X = np.transpose(X, (0, 2, 1))  # (n_subjects, n_times, n_channels)
 
     adjacency, _ = mne.channels.find_ch_adjacency(first_info, ch_type=method)
@@ -760,6 +961,9 @@ def group_1sample(
             baseline_title=f"{cond} vs 0",
             n_permutations=n_permutations,
             p_threshold=p_threshold,
+            t_threshold=t_threshold,
+            H0=H0,
+            cluster_p_values=cluster_p_values,
             good_clusters=good_clusters,
             group=True,
             report_path=report_path,
@@ -785,6 +989,41 @@ def group_1sample(
     }
 
 
+if __name__ == "__main__":
+    method = "mag"
+    dur = "500"
+
+    subjects = ["CA124", "CA140", "CB013", "CB072"]
+
+    epochs_list = []
+
+    for sub in subjects:
+        out_paths = create_output_folders(sub)
+
+        epochs_path = (
+            out_paths["phase3_epochs"]
+            / f"{sub}_04_epochs_offset_{method}_offset{dur}_epo.fif"
+        )
+
+        epochs = mne.read_epochs(epochs_path, preload=True)
+        epochs_list.append(epochs)
+
+    print(f"Carregados {len(epochs_list)} sujeitos")
+
+    group_1sample(
+        epochs_list=epochs_list,
+        method=method,
+        cond="fonts",
+        compare="category",
+        extra_query=f"duration == 'dur_{dur}ms'",
+        tmin=0.0,
+        tmax=0.5,
+        report=True,
+        # report_path="faces_vs_0_subj.html",
+    )
+
+
+# %%
 # ============================================================
 #  4) Grupo – 2 amostras (cond A vs cond B)
 # ============================================================
@@ -838,7 +1077,7 @@ def group_2sample(
         raise RuntimeError(f"Poucos sujeitos válidos: {n_subjects_used}.")
 
     print(f"Sujeitos incluídos: {n_subjects_used}")
-    X = np.array(all_diffs)  # (n_subjects, n_channels, n_times)
+    X = np.array(all_diffs, dtype=np.float64)  # (n_subjects, n_channels, n_times)
     X = np.transpose(X, (0, 2, 1))  # (n_subjects, n_times, n_channels)
 
     adjacency, _ = mne.channels.find_ch_adjacency(first_info, ch_type=method)
@@ -865,7 +1104,7 @@ def group_2sample(
 
     if report:
         _make_report(
-            evoked=evoked_diff,
+            evoked=evoked_diff,  # <-- correto
             mask=clusters,
             times=times,
             ch_names=ch_names,
@@ -874,10 +1113,14 @@ def group_2sample(
             baseline_title=f"{cond_a} vs {cond_b}",
             n_permutations=n_permutations,
             p_threshold=p_threshold,
+            t_threshold=t_threshold,
+            H0=H0,
+            cluster_p_values=cluster_p_values,
             good_clusters=good_clusters,
             group=True,
             report_path=report_path,
         )
+
         return {
             "T_obs": T_obs,
             "clusters": clusters,
@@ -899,101 +1142,39 @@ def group_2sample(
     }
 
 
-# ============================================================
-#  EXEMPLO DE USO (ajusta os caminhos para o teu sistema)
-# ============================================================
 if __name__ == "__main__":
-    subject = "CA124"
-    method = "mag"  # ou 'grad', 'eeg'
+    method = "mag"
     dur = "500"
-    out_paths = create_output_folders(subject)
 
-    # Carregar um sujeito
-    epochs_path = (
-        out_paths["phase3_epochs"]
-        / f"{subject}_04_epochs_offset_{method}_offset{dur}_epo.fif"
-    )
-    epochs = mne.read_epochs(epochs_path, preload=True)
+    subjects = ["CA124", "CA140", "CB013", "CB072"]
 
-    # --- Exemplo 1: Sujeito único – faces vs 0 ---
-    res_1s, rep_1s = single_subject_1sample(
-        epochs=epochs,
-        method=method,
-        cond="faces",
-        compare="category",
-        extra_query="duration == 'dur_500ms'",
-        tmin=0.0,
-        tmax=0.5,
-        report=True,
-        report_path="faces_vs_0_subj.html",
-    )
+    epochs_list = []
 
-    # --- Exemplo 2: Sujeito único – faces vs objetos ---
-    res_2s, rep_2s = single_subject_2sample(
-        epochs=epochs,
+    for sub in subjects:
+        out_paths = create_output_folders(sub)
+
+        epochs_path = (
+            out_paths["phase3_epochs"]
+            / f"{sub}_04_epochs_offset_{method}_offset{dur}_epo.fif"
+        )
+
+        epochs = mne.read_epochs(epochs_path, preload=True)
+        epochs_list.append(epochs)
+
+    print(f"Carregados {len(epochs_list)} sujeitos")
+
+    group_2sample(
+        epochs_list=epochs_list,
         method=method,
         cond_a="faces",
-        cond_b="objects",
+        cond_b="false_fonts",
         compare="category",
         extra_query="duration == 'dur_500ms'",
         tmin=0.0,
         tmax=0.5,
         report=True,
-        report_path="faces_vs_objects_subj.html",
+        # report_path="faces_vs_0_subj.html",
     )
-
-    # --- Exemplo 3: Grupo – faces vs 0 (precisas de uma lista de Epochs) ---
-    # subs = ["CA124", "CA125", ...]
-    # epochs_list = [mne.read_epochs(...) for sub in subs]
-    # res_g1, rep_g1 = group_1sample(epochs_list, ...)
-
-    # --- Exemplo 4: Grupo – faces vs objetos ---
-    # res_g2, rep_g2 = group_2sample(epochs_list, ...)
-
     print("\nAnálise terminada.")
 
-
 # %%
-
-# adiciona mais informaçao em cada funçao. depois ve
-
-print(f"Adjacency: {adjacency.shape[0]} canais")
-print(f"t-threshold: {t_threshold:.3f}")
-
-
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-# so para ser o meu primeiro codigo com 1000 linhas
