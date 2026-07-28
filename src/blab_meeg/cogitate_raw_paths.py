@@ -89,7 +89,11 @@ Example folder structure:
 
 """
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 COG_MODALITIES = ["ECOG", "FMRI", "MEEG"]
 COG_EXPERIMENTS = ["EXP1", "EXP2"]
@@ -180,16 +184,20 @@ def _is_cog_raw_subject_acq_folder_name(fname: str) -> bool:
     modality = parts[2]
     modifier = "_".join(parts[3:])
     if not _is_cog_subject_name(subject):
-        print(f"Subject part <{subject}> is not a valid cogitate subject name of <{fname}>.")
+        logger.warning(
+            "Subject part <%s> is not a valid cogitate subject name of <%s>.", subject, fname
+        )
         return False
     if context not in COG_ACQ_CONTEXTS:
-        print(f"Context part <{context}> is not a valid cogitate context of <{fname}>.")
+        logger.warning("Context part <%s> is not a valid cogitate context of <%s>.", context, fname)
         return False
     if modality not in COG_ACQ_MODALITIES:
-        print(f"Modality part <{modality}> is not a valid cogitate modality of <{fname}>.")
+        logger.warning(
+            "Modality part <%s> is not a valid cogitate modality of <%s>.", modality, fname
+        )
         return False
-    if modifier is not None:
-        print(f"Found modifier part {modifier} of acq folder {fname}")
+    if modifier:
+        logger.debug("Found modifier part %s of acq folder %s", modifier, fname)
 
     return True
 
@@ -268,54 +276,79 @@ def is_valid_cog_folder(fpath: Path) -> bool:
     :rtype: bool
     """
     fpath = Path(fpath)
-    assert fpath.is_dir(), "Input path must be a directory"
+    if not fpath.is_dir():
+        logger.error("Input path must be a directory: %s", fpath)
+        return False
     fname = which_cog_folder_name(fpath.name)
     match fname:
         case "raw_modality":
+            entries = list(fpath.iterdir())
             #   it should contain modality metadata
             #   is should contain at lease one raw subject folders
-            assert fpath.joinpath("metadata").exists(), (
-                f"Raw modality folder {fpath} should contain a metadata folder"
-            )
-            assert any(_is_cog_subject_name(x.name) for x in fpath.iterdir()), (
-                f"Raw modality folder {fpath} should contain at least one raw subject folder. Found: {fpath.iterdir()}"
-            )
+            if not fpath.joinpath("metadata").exists():
+                logger.error("Raw modality folder %s should contain a metadata folder", fpath)
+                return False
+            if not any(_is_cog_subject_name(x.name) for x in entries if x.is_dir()):
+                logger.error(
+                    "Raw modality folder %s should contain at least one raw subject folder. Found: %s",
+                    fpath,
+                    entries,
+                )
+                return False
             return True
         case "subject":
+            entries = list(fpath.iterdir())
             # it should contain subject metadata
             # it should contain raw_subject_acq folders
-            assert fpath.joinpath("metadata").exists(), (
-                f"Subject folder {fpath} should contain a metadata folder"
-            )
-            assert any(_is_cog_raw_subject_acq_folder_name(x.name) for x in fpath.iterdir()), (
-                f"Subject folder {fpath} should contain at least one raw subject acq folder. Found: {fpath.iterdir()}"
-            )
+            if not fpath.joinpath("metadata").exists():
+                logger.error("Subject folder %s should contain a metadata folder", fpath)
+                return False
+            if not any(_is_cog_raw_subject_acq_folder_name(x.name) for x in entries if x.is_dir()):
+                logger.error(
+                    "Subject folder %s should contain at least one raw subject acq folder. Found: %s",
+                    fpath,
+                    entries,
+                )
+                return False
             return True
         case "raw_subject_acq":
             # it should contain only files, i.e. no dirs
-            assert len([x for x in fpath.iterdir() if x.is_dir()]) == 0
+            if any(x.is_dir() for x in fpath.iterdir()):
+                logger.error("Raw subject acq folder %s should not contain subdirectories", fpath)
+                return False
             return True
         case "metadata":
             # it should either be in a subject folder or a modality folder
             # it should also contain either subject metadata (with CRF and EXQU files and a
             # calibration_crosstalk_coreg folder) or modality metadata
-            assert (
-                which_cog_folder_name(fpath.parent.name) == "subject"
-                or which_cog_folder_name(fpath.parent.name) == "raw_modality"
-            )  # ?? in cog_folder_names
+            parent_type = which_cog_folder_name(fpath.parent.name)
+            if parent_type not in {"subject", "raw_modality"}:
+                logger.error(
+                    "Metadata folder %s should be inside a subject or raw_modality folder, found %s",
+                    fpath,
+                    parent_type,
+                )
+                return False
             return True
         case "calibration_crosstalk_coreg":
             # it should contain only files (3?) or no dirs
-            assert len([x for x in fpath.iterdir() if x.is_dir()]) == 0
+            if any(x.is_dir() for x in fpath.iterdir()):
+                logger.error(
+                    "calibration_crosstalk_coreg folder %s should not contain subdirectories", fpath
+                )
+                return False
             return True
         case "unknown":
             # Check if it contains any raw modality folder could be raw_base_folder
-            assert any(
-                _is_cog_raw_modality_folder_name(x.name) for x in fpath.iterdir() if x.is_dir()
-            ), (
-                f"Unknown folder {fpath} should contain at least one raw modality folder. Found: {fpath.iterdir()}"
-            )
-            print(f"Unknown folder {fpath} looks like a raw base folder. Found: {fpath.iterdir()}")
+            entries = [x for x in fpath.iterdir() if x.is_dir()]
+            if not any(_is_cog_raw_modality_folder_name(x.name) for x in entries):
+                logger.error(
+                    "Unknown folder %s should contain at least one raw modality folder. Found: %s",
+                    fpath,
+                    entries,
+                )
+                return False
+            logger.info("Unknown folder %s looks like a raw base folder. Found: %s", fpath, entries)
             return True
         case _:
             return False
@@ -427,10 +460,3 @@ if __name__ == "__main__":
     print(bd)
 
     print(bd.get_output_path("D:/COGITATE/RAW/COG_MEEG_EXP1_RELEASE/CA124_MEEG_1_DurR1.fif"))
-    # TODO: Swap all asserts to logs, implement logs for whole project, <is_>functions should not
-    # raise errors just return False if condition is not true, assert messages should be outputted
-    # to a log, however logging is not implemented and interfaces with the preproc logger, have to
-    # look into this, i.e. try to be smart and implement a preproc logger and a cogitate logger
-    # or manually implement a json file to store preproc logs and implement a logger for the whole
-    # project in any case implement a logger for the whole project
-    # TODO: Add tests
