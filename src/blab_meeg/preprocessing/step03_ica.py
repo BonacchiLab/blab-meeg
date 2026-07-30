@@ -20,13 +20,14 @@
 import mne
 from mne.preprocessing import ICA
 from pathlib import Path
-from paths import create_output_folders
+from blab_meeg.utils.paths import create_output_folders
 import json
 from mne.preprocessing import read_ica
 import matplotlib.pyplot as plt
-from blab_meeg.raw_utils import get_eog_ecg_name_dict
+from blab_meeg.utils.raw_utils import get_eog_ecg_name_dict
 
 
+# %%
 # *#*#*#*#*#*#*#*#*#
 # 3a) ICA Training #
 # *#*#*#*#*#*#*#*#*#
@@ -273,10 +274,10 @@ if __name__ == "__main__":
 
 
 def run_apply_ica(
-    file_paths,
+    raws,
     out_paths,
+    names,
     subject="sub",
-    names=None,
 ):
     # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
     # 3b.1) Load data and initialize report  #
@@ -286,15 +287,22 @@ def run_apply_ica(
     # Load ICA components
     # Load json with the componenets to remove (manual + automatic)
 
-    report = mne.Report(title=f"{subject} - ICA apply")
+    print(f"Número de raws: {len(raws)}")
+    print(f"Número de names: {len(names)}")
+    print(names)
 
-    raws = [mne.io.read_raw_fif(f, preload=True) for f in file_paths]
+    report = mne.Report(title=f"{subject} - ICA apply")
 
     if names is None:
         names = [f"run_{i + 1}" for i in range(len(file_paths))]
 
     ica_meg = read_ica(out_paths["03_ica"] / f"{subject}_ica_meg.fif")
-    ica_eeg = read_ica(out_paths["03_ica"] / f"{subject}_ica_eeg.fif")
+
+    ica_eeg = None
+    ica_eeg_path = out_paths["03_ica"] / f"{subject}_ica_eeg.fif"
+
+    if ica_eeg_path.exists():
+        ica_eeg = read_ica(ica_eeg_path)
 
     def flatten_ica_components(comp_dict):
         return (
@@ -311,12 +319,13 @@ def run_apply_ica(
     ) as f:
         final = json.load(f)
 
-    # Obter picks corretos (lista de ints)
     meg_picks = flatten_ica_components(final["meg"])
-    eeg_picks = flatten_ica_components(final["eeg"])
-
     ica_meg.exclude = meg_picks
-    ica_eeg.exclude = eeg_picks
+
+    eeg_picks = []
+    if ica_eeg is not None and "eeg" in final:
+        eeg_picks = flatten_ica_components(final["eeg"])
+        ica_eeg.exclude = eeg_picks
 
     # *#*#*#*#*#*#*#*#*#
     # 3b.2) Apply ICA  #
@@ -332,7 +341,9 @@ def run_apply_ica(
 
         raw_ica_apply = raw.copy()
         ica_meg.apply(raw_ica_apply)
-        ica_eeg.apply(raw_ica_apply)
+
+        if ica_eeg is not None:
+            ica_eeg.apply(raw_ica_apply)
 
         raws_ica_apply.append(raw_ica_apply)
 
@@ -351,9 +362,11 @@ def run_apply_ica(
     # Proprieties of the removed components (topographies, scores)
 
     fig_ica_meg = ica_meg.plot_properties(raws[0], picks=meg_picks)
-    fig_ica_eeg = ica_eeg.plot_properties(raws[0], picks=eeg_picks)
     report.add_figure(fig_ica_meg, title="ICA meg components removed")
-    report.add_figure(fig_ica_eeg, title="ICA eeg components removed")
+
+    if ica_eeg is not None and len(eeg_picks) > 0:
+        fig_ica_eeg = ica_eeg.plot_properties(raws[0], picks=eeg_picks)
+        report.add_figure(fig_ica_eeg, title="ICA eeg components removed")
 
     # fig_all = raw_concat.copy().plot(duration=raw_concat.times[-1], butterfly=True, show=False)
     # report.add_figure(fig_all, title="All channels")
@@ -383,34 +396,29 @@ def run_apply_ica(
 
 if __name__ == "__main__":
     inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-    subject = "CB013"
+    subject = "CA101"
 
-    sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    # sub_indir = Path(rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE\{subject}")
+    sub_indir = inroot_dir / subject
     sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
 
-    out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
+    out_paths = create_output_folders(subject=subject)
 
-    outroot_dir = r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT"
-    sub_dur_outdir = Path(
-        rf"{outroot_dir}\{subject}\{subject}_Preproc\02_artifact_annotations"
+    raw_files = sorted(sub_dur_indir.glob("*DurR*_raw.fif"))
+
+    # "C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT\CA101\Preproc\02_artifact_annotations\CA101_02_artifact_annotations_dur5_raw.fif"
+
+    annotated_files = sorted(
+        out_paths["02_artifact_annotations"].glob(
+            f"{subject}_02_artifact_annotations_*_raw.fif"
+        )
     )
+    raws_annotated = [mne.io.read_raw_fif(f, preload=True) for f in annotated_files]
 
-    file_paths = [
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur1.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur2.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur3.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur4.fif",
-        rf"{sub_dur_outdir}\{subject}_02_artifact_annotations_dur5.fif",
-    ]
-    names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
+    names = [f"dur{i + 1}" for i in range(len(raws_annotated))]
 
-    dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1, 6)]
-    dur_files = [
-        x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-    ]
-
-    raw_concatenated = run_apply_ica(
-        file_paths=file_paths,
+    run_apply_ica(
+        raws=raws_annotated,
         out_paths=out_paths,
         subject=subject,
         names=names,

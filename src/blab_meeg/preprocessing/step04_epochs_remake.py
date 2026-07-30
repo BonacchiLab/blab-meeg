@@ -118,7 +118,7 @@ def run_epochs_onset_creator(
 if __name__ == "__main__":
     # Meter a pasta do sujeito
     inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-    subject = "CB072"
+    subject = "CA101"
     """
     baseline = (-0.2, 0)
     tmin = -0.2

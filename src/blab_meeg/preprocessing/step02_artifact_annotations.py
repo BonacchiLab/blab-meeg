@@ -20,10 +20,10 @@ import mne
 from mne.preprocessing import annotate_muscle_zscore
 from mne import Annotations
 from pathlib import Path
-from paths import create_output_folders
+from blab_meeg.utils.paths import create_output_folders
 import pandas as pd
 import matplotlib.pyplot as plt
-from blab_meeg.raw_utils import get_eog_ecg_name_dict
+from blab_meeg.utils.raw_utils import get_eog_ecg_name_dict
 
 
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#

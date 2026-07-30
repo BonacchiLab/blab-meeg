@@ -13,7 +13,7 @@
 import mne
 from pathlib import Path
 from mne.preprocessing import find_bad_channels_maxwell, maxwell_filter
-from paths import create_output_folders
+from blab_meeg.utils.paths import create_output_folders
 import seaborn as sns
 import pandas as pd
 import numpy as np

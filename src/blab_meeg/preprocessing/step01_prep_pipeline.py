@@ -17,7 +17,7 @@
 import mne
 from pathlib import Path
 from pyprep.prep_pipeline import PrepPipeline
-from paths import create_output_folders
+from blab_meeg.utils.paths import create_output_folders
 import numpy as np
 import matplotlib.pyplot as plt
 import json
