@@ -4,7 +4,7 @@ from pathlib import Path
 
 def create_output_folders(
     subject,
-    inroot=Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE"),
+    inroot = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
 ):
 
     outroot = inroot.parent / f"{inroot.name}_OUTPUT"
@@ -40,6 +40,35 @@ def create_output_folders(
     ]
 
     cohort_root = outroot / "Cohort_Results"
+
+    # ---------------------------------------------------------
+    # FreeSurfer
+    # ---------------------------------------------------------
+
+    freesurfer_root = outroot / "FreeSurfer"
+    freesurfer_root.mkdir(parents=True, exist_ok=True)
+
+    freesurfer_subject = freesurfer_root / subject
+
+    # Pasta para guardar os NIfTI originais
+    freesurfer_input_root = freesurfer_root / "input"
+    freesurfer_input_root.mkdir(parents=True, exist_ok=True)
+
+    # Pasta do sujeito dentro de input
+    freesurfer_input = freesurfer_input_root / subject
+    freesurfer_input.mkdir(parents=True, exist_ok=True)
+
+    freesurfer_coreg = freesurfer_root / "coreg"
+    freesurfer_coreg.mkdir(parents=True, exist_ok=True)
+
+    freesurfer_forward = freesurfer_root / "Forward"
+    freesurfer_forward.mkdir(parents=True, exist_ok=True)
+
+    freesurfer_inverse = freesurfer_root / "Inverse"
+    freesurfer_inverse.mkdir(parents=True, exist_ok=True)
+
+    freesurfer_stc = freesurfer_root / "STC"
+    freesurfer_stc.mkdir(parents=True, exist_ok=True)
 
     for folder in cohort_dirs:
         (cohort_root / folder).mkdir(parents=True, exist_ok=True)
@@ -79,6 +108,14 @@ def create_output_folders(
     return {
         "output": outroot,
         "cohort_results": cohort_root,
+        "freesurfer": freesurfer_root,
+        "freesurfer_input_root": freesurfer_input_root,
+        "freesurfer_input": freesurfer_input,
+        "freesurfer_coreg": freesurfer_coreg,
+        "freesurfer_forward": freesurfer_forward,
+        "freesurfer_inverse": freesurfer_inverse,
+        "freesurfer_stc": freesurfer_stc,
+        "freesurfer_subject": freesurfer_subject,
         "subject": subject_root,
         **{folder.lower(): cohort_root / folder for folder in cohort_dirs},
         "docs": docs_root,

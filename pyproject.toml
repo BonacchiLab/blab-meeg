@@ -6,13 +6,18 @@ readme = "README.md"
 authors = [{ name = "Niccolò Bonacchi", email = "nbonacchi@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
+    "dicom2nifti>=2.6.2",
     "matplotlib>=3.10.7",
     "mne>=1.10.2",
     "numpy>=2.3.5",
     "pandas>=2.3.3",
     "pycrostates>=0.6.1",
+    "pydicom>=3.0.2",
     "pyprep>=0.6.0",
     "pyside6>=6.10.1",
+    "pyvista>=0.48.4",
+    "pyvistaqt>=0.12.0",
+    "qtpy>=2.4.3",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
     "statsmodels>=0.14.6",

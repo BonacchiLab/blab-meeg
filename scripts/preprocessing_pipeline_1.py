@@ -125,6 +125,8 @@ def run_full_pipeline_part1(
         ),
     )
 
+
+    print(dir())
     # *#*#*#*#*#*#
     # 2.3) PREP  #
     # *#*#*#*#*#*#
@@ -153,7 +155,7 @@ def run_full_pipeline_part1(
     else:
         print("No EEG detected. Skipping PREP.")
         raws_clean = raws_sss
-
+    print(dir())
     # *#*#*#*#*#*#*#*#*#*#*#*##*#
     # 2.4) Artifact annotation #
     # *#*#*#*#*#*#*#*#*#*#*#*##*#
@@ -177,7 +179,7 @@ def run_full_pipeline_part1(
             subject,
         ),
     )
-
+    print(dir())
     # *#*#*#*#*#*#*#*#*#
     # 2.6) ICA train  #
     # *#*#*#*#*#*#*#*#*#
@@ -224,6 +226,7 @@ def run_full_pipeline_part1(
     seconds = elapsed % 60
 
     print(f"\nFinished in {minutes} min {seconds:.1f} s")
+    print(dir())
 
     return
 

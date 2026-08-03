@@ -6,8 +6,8 @@ from scipy.stats import t
 import mne
 from mne.report import Report
 from pathlib import Path
-from paths import create_output_folders
-from epochs_related_functions import create_raw_epochs, create_metadata
+from blab_meeg.utils.paths import create_output_folders
+from blab_meeg.utils.epochs_related_functions import create_raw_epochs, create_metadata
 import matplotlib.pyplot as plt
 
 
@@ -154,13 +154,13 @@ if __name__ == "__main__":
         tmax=0.5,
     )
 
-# %%
+
 # %%
 import mne
 from mne.report import Report
 from pathlib import Path
-from paths import create_output_folders
-from epochs_related_functions import create_raw_epochs, create_metadata
+from blab_meeg.utils.paths import create_output_folders
+from blab_meeg.utils.epochs_related_functions import create_raw_epochs, create_metadata
 import matplotlib.pyplot as plt
 
 

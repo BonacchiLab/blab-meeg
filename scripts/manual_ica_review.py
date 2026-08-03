@@ -9,7 +9,7 @@
 # components before deciding which components should
 # be removed from the data.
 
-# %%
+
 # *#*#*#*#*#
 # 1) Setup #
 # *#*#*#*#*#
@@ -21,7 +21,7 @@ matplotlib.use("QtAgg")
 from pathlib import Path
 
 # select subject
-subject = "CA101"
+subject = "CA107"
 
 # *#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Load training data  #
@@ -31,9 +31,9 @@ subject = "CA101"
 # the ICA fitting stage.
 
 ica_file_path = Path(
-    rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT\{subject}\Preproc\03_ica"
+    rf"/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT/{subject}/Preproc/03_ica"
 )
-
+inroot_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
 raw_path = ica_file_path / f"{subject}_03_ica_train_file.fif"
 raw_ica_train_file = mne.io.read_raw_fif(raw_path, preload=False)
 
@@ -70,7 +70,7 @@ ica_eeg = read_ica(ica_eeg_path)
 ica_meg.plot_sources(raw_ica_train_file)
 ica_eeg.plot_sources(raw_ica_train_file)
 
-
+"""
 # %%
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # Manual ICA Inspection Tool   #
@@ -95,7 +95,7 @@ subject = "CA101"
 # *#*#*#*#*#*#*#*#*#*#*#*#
 
 ica_file_path = Path(
-    rf"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE_OUTPUT\{subject}\Preproc\03_ica"
+    rf"/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT/{subject}/Preproc/03_ica"
 )
 
 raw_path = ica_file_path / f"{subject}_03_ica_train_file.fif"
@@ -136,5 +136,5 @@ ica_meg.plot_sources(raw_ica_train_file)
 if ica_eeg is not None:
     ica_eeg.plot_sources(raw_ica_train_file)
 
-
+"""
 # %%

@@ -413,7 +413,6 @@ if __name__ == "__main__":
             f"{subject}_02_artifact_annotations_*_raw.fif"
         )
     )
-    raws_annotated = [mne.io.read_raw_fif(f, preload=True) for f in annotated_files]
 
     names = [f"dur{i + 1}" for i in range(len(raws_annotated))]
 
