@@ -3,8 +3,7 @@ from pathlib import Path
 
 
 def create_output_folders(
-    subject,
-    inroot = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
+    subject, inroot=Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
 ):
 
     outroot = inroot.parent / f"{inroot.name}_OUTPUT"
@@ -31,6 +30,13 @@ def create_output_folders(
     phase3_analysis_dirs = [
         "Sensor_FDR",
         "Cluster_Based_Permutation",
+    ]
+
+    decoding_dirs = [
+        "Reports",
+        "Plots",
+        "Data_Files",
+        "Trained_Models",
     ]
 
     epoch_dirs = [
@@ -87,6 +93,11 @@ def create_output_folders(
     for folder in report_phases:
         (analysis_docs / folder).mkdir(parents=True, exist_ok=True)
 
+    decoding_root = analysis_docs / "Decoding"
+
+    for folder in decoding_dirs:
+        (decoding_root / folder).mkdir(parents=True, exist_ok=True)
+
     phase3_root = analysis_docs / "Phase3"
 
     for folder in phase3_analysis_dirs:
@@ -123,6 +134,8 @@ def create_output_folders(
         "analysis_docs": analysis_docs,
         "preproc": preproc_root,
         "epochs": epochs_root,
+        "decoding": decoding_root,
+        **{folder: decoding_root / folder for folder in decoding_dirs},
         "sensor_fdr": sensor_fdr_root,
         "cluster_based": cluster_based_root,
         **{folder: preproc_root / folder for folder in preproc_dirs},
@@ -140,7 +153,7 @@ def create_output_folders(
 
 
 if __name__ == "__main__":
-    paths = create_output_folders(subject="CB072")
+    paths = create_output_folders(subject="CA124")
 
     print()
 
