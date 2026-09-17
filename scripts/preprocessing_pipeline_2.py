@@ -319,3 +319,18 @@ if __name__ == "__main__":
         subject=args.subject,
     )
 # %%
+
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--subject",
+        required=True,
+    )
+
+    args = parser.parse_args()
+
+    run_full_pipeline_part2(
+        subject=args.subject,
+    )

@@ -327,6 +327,17 @@ def run_badch_maxwell(
             }
         )
 
+
+    plt.close("all")
+    for raw,raw_bad in zip(raws, raws_badch):
+        raw.close()
+        raw_bad.close()
+    del (
+        raws,
+        raws_badch,
+    )
+
+
     # *#*#*#*#*#*#*#*#*#*#
     # 2.5) Save outputs  #
     # *#*#*#*#*#*#*#*#*#*#
@@ -345,7 +356,7 @@ def run_badch_maxwell(
 
         report.save(
             out_paths["docs_00_badch_maxwell"] / "00_badch_maxwell_report.html",
-            overwrite=True,
+            overwrite=True, open_browser=False,
         )
 
         df_final = pd.concat(all_dfs, ignore_index=True)
@@ -359,12 +370,9 @@ def run_badch_maxwell(
         ) as f:
             json.dump(all_preproc_info, f, indent=4)
 
-    plt.close("all")
     del report
-    del (
-        raws,
-        raws_badch,
-    )
+
+
     return raws_sss
 
 

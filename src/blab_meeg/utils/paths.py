@@ -43,7 +43,7 @@ def create_output_folders(
     epoch_dirs = [
         "Phase1_onset_-100_500ms",
         "Phase2_onset_-200_2000ms",
-        "Phase3_offset",
+        "Phase3_offset_-100_500ms",
     ]
 
     cohort_root = outroot / "Cohort_Results"

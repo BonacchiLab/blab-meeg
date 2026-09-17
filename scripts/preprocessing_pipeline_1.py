@@ -18,6 +18,7 @@
 # *#*#*#*#*#
 # 1) Setup #
 # *#*#*#*#*#
+from numpy import True_
 import mne
 from blab_meeg.utils.paths import create_output_folders
 from blab_meeg.preprocessing.step00_badch_maxwell import run_badch_maxwell
@@ -31,6 +32,9 @@ from blab_meeg.utils.load_or_run_raws import (
     load_or_run,
 )
 import time
+import gc
+
+
 
 # *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Full preprocessing part 1  #
@@ -40,7 +44,7 @@ import time
 def run_full_pipeline_part1(
     subject,
     run_maxwell=False,
-    run_prep=True,
+    run_prep=False,
     run_artifact_annotation=True,
     run_ica=True,
     save_outputs=True,
@@ -80,12 +84,29 @@ def run_full_pipeline_part1(
 
     raw_files = sorted(sub_dur_indir.glob("*DurR*.fif"))
 
-    if len(raw_files) == 0:
-        raise FileNotFoundError(f"No raw FIF files found for {subject}.")
+    # Ignorar ficheiros demasiado pequenos (provavelmente truncados/corrompidos)
+    MIN_FILE_SIZE_BYTES = 300 * 1024 * 1024  # 300 MB
 
+    raw_files_all = raw_files
+    raw_files = [f for f in raw_files_all if f.stat().st_size >= MIN_FILE_SIZE_BYTES]
+
+    skipped = [f for f in raw_files_all if f.stat().st_size < MIN_FILE_SIZE_BYTES]
+
+    if skipped:
+        print(f"\n[!] Skipping {len(skipped)} file(s) smaller than "
+            f"{MIN_FILE_SIZE_BYTES / (1024**2):.0f} MB:")
+        for f in skipped:
+            size_mb = f.stat().st_size / (1024**2)
+            print(f"    - {f.name}  ({size_mb:.1f} MB)")
+
+    if len(raw_files) == 0:
+        raise FileNotFoundError(
+            f"No raw FIF files found for {subject} "
+            f"(after filtering files < {MIN_FILE_SIZE_BYTES / (1024**2):.0f} MB)."
+        )
     names = [f"dur{i + 1}" for i in range(len(raw_files))]
 
-    raw_info = mne.io.read_raw_fif(raw_files[0], preload=False)
+    raw_info = mne.io.read_raw_fif(raw_files[0], preload=False, allow_maxshield=True,)
     has_eeg = len(mne.pick_types(raw_info.info, eeg=True)) > 0
     raw_info.close()
 
@@ -151,6 +172,9 @@ def run_full_pipeline_part1(
                 subject,
             ),
         )
+        for raw_sss in raws_sss:
+            raw_sss.close()
+        del raws_sss
 
     else:
         print("No EEG detected. Skipping PREP.")
@@ -179,6 +203,10 @@ def run_full_pipeline_part1(
             subject,
         ),
     )
+
+    for raw_clean in raws_clean:
+        raw_clean.close()
+    del raws_clean
     print(dir())
     # *#*#*#*#*#*#*#*#*#
     # 2.6) ICA train  #
@@ -200,6 +228,11 @@ def run_full_pipeline_part1(
         )
 
         print("✔ Train ICA complete.")
+
+        for raw_annotated in raws_annotated:
+            raw_annotated.close()
+        del raws_annotated
+
 
     if delete_intermediate_files:
         if has_eeg:
@@ -228,12 +261,24 @@ def run_full_pipeline_part1(
     print(f"\nFinished in {minutes} min {seconds:.1f} s")
     print(dir())
 
+    gc.collect()
+
     return
 
 
 if __name__ == "__main__":
-    run_full_pipeline_part1(
-        subject="CA140",
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--subject",
+        required=True,
     )
 
+    args = parser.parse_args()
+
+    run_full_pipeline_part1(
+        subject=args.subject,
+    )
 # %%
