@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def create_output_folders(
-    subject, inroot=Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
+    subject, inroot = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
 ):
 
     outroot = inroot.parent / f"{inroot.name}_OUTPUT"

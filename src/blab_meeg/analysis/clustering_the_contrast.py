@@ -843,10 +843,26 @@ if __name__ == "__main__":
     # --------------------------------------------------------
 
     subjects = [
+        "CA102",
+        "CA103",
+        "CA104",
+        "CA106",
+        "CA107",
+        "CA109",
+        "CA110",
+        "CA111",
+        "CA112",
+        "CA113",
+        "CA114",
+        "CA116",
+        "CA118",
+        "CA123",
         "CA124",
-        "CA140",
-        "CB072",
-        "CB013",
+        "CA125",
+        "CA126",
+        "CA127",
+        "CA128",
+        "CA131",
     ]
 
     # --------------------------------------------------------
@@ -869,7 +885,7 @@ if __name__ == "__main__":
     # list of dicts   -> ad-hoc
     # --------------------------------------------------------
 
-    COMPARISONS_TO_RUN = ["faces_vs_objects"]
+    COMPARISONS_TO_RUN = ["faces_vs_fonts", "faces_vs_false_fonts", "objects_vs_fonts", "objects_vs_false_fonts", "fonts_vs_false_fonts"]
 
     # --------------------------------------------------------
     # PATHS
@@ -945,3 +961,5 @@ if __name__ == "__main__":
     print("=" * 70)
     print("All contrast analyses completed")
     print("=" * 70)
+
+# %%

@@ -1,156 +1,321 @@
-# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
-# Full Preprocessing Pipeline part 2 #
-# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#
-#
-# This script executes the second stage of the
-# preprocessing workflow.
+# %%
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*
+# Preprocessing Pipeline part 2
+# *#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*#*
 #
 # Processing steps:
-#   04) ICA application
-#   05) Epoch creation
+#   04) Apply ICA
+#   05) Create epochs
 #
-# Previously identified ICA components are removed
-# from the continuous data before epoch extraction.
-
+# Epoching:
+#   Phase 1 - Onset:  -100 to +500 ms
+#   Phase 2 - Onset:  -200 to +2000 ms
+#   Phase 3 - Offset: -100 to +500 ms
 #
 # %%
-# *#*#*#*#*#
-# 1) Setup #
-# *#*#*#*#*#
+# 1) Setup
+# %%
 import mne
-from pathlib import Path
+import time
+import gc
+
 from blab_meeg.utils.paths import create_output_folders
+from blab_meeg.utils.load_inroot import load_inroot
 from blab_meeg.preprocessing.step03_ica import run_apply_ica
-from blab_meeg.preprocessing.step04_epochs_remake import run_epochs_onset_creator, run_epoch_offset_creator
-#from THE_DELETER import the_deleter
-
-# inroot_dir = Path(r"C:\Users\tomas\Desktop\COG_MEEG_EXP1_RELEASE")
-inroot_dir = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
-
-# select subject
-subject = "CA107"
-
-sub_indir = Path(rf"/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE/{subject}")
-sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
-
-out_paths = create_output_folders(subject=subject, inroot=inroot_dir)
-
-outroot_dir = r"/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT"
-
-# --- caminhos dos ficheiros ---
-file_paths = [
-    rf"{sub_dur_indir}/{subject}_MEEG_1_DurR1.fif",
-    rf"{sub_dur_indir}/{subject}_MEEG_1_DurR2.fif",
-    rf"{sub_dur_indir}/{subject}_MEEG_1_DurR3.fif",
-    rf"{sub_dur_indir}/{subject}_MEEG_1_DurR4.fif",
-    rf"{sub_dur_indir}/{subject}_MEEG_1_DurR5.fif",
-]
-names = ["dur1", "dur2", "dur3", "dur4", "dur5"]
-dur_files = [sub_dur_indir / f"{subject}_MEEG_1_DurR{i}.fif" for i in range(1, 6)]
-dur_files = [
-    x for x in sub_dur_indir.glob("*") if x.suffix == ".fif" and "DurR" in x.name
-]
-
-
-# caminhos ICA
-ica_meg_path = out_paths["03_ica"] / f"{subject}_ica_meg.fif"
-ica_eeg_path = out_paths["03_ica"] / f"{subject}_ica_eeg.fif"
-
-# JSON
-ica_json_path = (
-    out_paths["docs"] / "Preproc" / "03_ica" / f"{subject}_ica_suggestions.json"
-)
-#def run_full_pipeline_part2(subject):
-
-    # *#*#*#*#*#*#*#
-    # 2.1) Paths & INPUTS#
-    # *#*#*#*#*#*#*#
-    # Define input/output folders and locate all
-    # files required for the post-ICA workflow.
-    # Retrieve the annotated runs generated during
-    # the previous preprocessing stage.
-
-inroot = Path(r"/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE")
-out_paths = create_output_folders(subject=subject, inroot=inroot)
-
-sub_indir = inroot / subject
-sub_dur_indir = sub_indir / f"{subject}_EXP1_MEEG"
-
-names = [f"dur{i}" for i in range(1, 6)]
-
-raw_files = sorted([x for x in sub_dur_indir.glob("*DurR*.fif")])
-
-
-annot_files = [
-    out_paths["02_artifact_annotations"]
-    / f"{subject}_02_artifact_annotations_{n}_raw.fif"
-    for n in names
-]
-raws_annotated= [mne.io.read_raw_fif(f, preload=True) for f in annot_files]
-# *#*#*#*#*#*#*#*#
-# 2.3) Apply ICA #
-# *#*#*#*#*#*#*#*#
-# Remove the selected ICA components from all
-# runs and generate the final cleaned dataset.
-
-run_apply_ica(
-    out_paths=out_paths,
-    subject=subject,
-    names=names,
-    raws=raws_annotated
+from blab_meeg.preprocessing.step04_epochs_remake import (
+    run_epochs_onset_creator,
+    run_epoch_offset_creator,
 )
 
 
-#the_deleter(out_paths=out_paths, folder="02_artifact_anonotations")
+# %%
+# 2) Full preprocessing part 2
+# %%
+def run_full_pipeline_part2(
+    subject,
+    run_ica=True,
+    run_phase1=True,
+    run_phase2=True,
+    run_phase3=True,
+    save_outputs=True,
+):
 
+    start_time = time.perf_counter()
 
-concat_clean_path = out_paths["03_ica"] / f"{subject}_03_ica_concat_raw.fif"
+    # ============================================================
+    # 2.1) QC exclusion
+    # ============================================================
 
-# *#*#*#*#*#*#*#*#
-# 2.4) Epoching  #
-# *#*#*#*#*#*#*#*#
-# Segment the continuous recording into epochs
-# based on experimental events and prepare the
-# dataset for statistical analyses.
+    excluded_subjects = {
+        "CA101",
+        "CA108",
+        "CB082",
+    }
 
-raw_concat = mne.io.read_raw_fif(
-    rf"/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT/{subject}/Preproc/03_ica/{subject}_03_ica_concat_raw.fif",
-    preload=True,
-)
+    if subject in excluded_subjects:
+        print(f"{subject}: excluded by QC. Skipping.")
+        return
 
-run_epochs_onset_creator(
-    raw_concat=raw_concat,
-    out_paths=out_paths,
-    subject=subject,
-    baseline=(-0.1, 0),
-    tmin=-0.1,
-    tmax=0.5,
-    l_freq=1.0,
-    h_freq=35.0,
-)
+    # ============================================================
+    # 2.2) Paths
+    # ============================================================
 
-    """
-    epochs_clean = run_epochs_onset_creator(
-        raw_concat=raw_concat,
-        out_paths=out_paths,
-        subject=subject,
-        baseline=(-0.2, 0),
-        tmin=-0.2,
-        tmax=2.0,
-        l_freq=1.0,
-        h_freq=35.0,
+    inroot_dir = load_inroot()
+
+    sub_indir = inroot_dir / subject
+    sub_dur_indir = (
+        sub_indir / f"{subject}_EXP1_MEEG"
     )
 
+    out_paths = create_output_folders(
+        subject=subject,
+        inroot=inroot_dir,
+    )
+
+    # ============================================================
+    # 2.3) Find raw runs
+    # ============================================================
+
+    raw_files = sorted(
+        sub_dur_indir.glob("*DurR*.fif")
+    )
+
+    if len(raw_files) == 0:
+        raise FileNotFoundError(
+            f"No raw FIF files found for {subject}."
+        )
+
+    names = [
+        f"dur{i + 1}"
+        for i in range(len(raw_files))
+    ]
+
+    print("\n" + "=" * 60)
+    print(f"Subject: {subject}")
+    print("=" * 60)
+    print(f"Runs found: {len(raw_files)}")
 
 
-    for method in ("mag", "grad", "eeg"):
-        run_epoch_offset_creator(
-            epochs=epochs_clean, subject=subject, method=method, crop=True
+    # ============================================================
+    # 2.4) Load artifact-annotated runs
+    # ============================================================
+
+    annot_files = [
+        out_paths["02_artifact_annotations"]
+        / f"{subject}_02_artifact_annotations_{name}_raw.fif"
+        for name in names
+    ]
+
+    missing_annotations = [
+        path
+        for path in annot_files
+        if not path.exists()
+    ]
+
+    if missing_annotations:
+
+        raise FileNotFoundError(
+            "Missing artifact annotation files:\n"
+            + "\n".join(
+                str(path)
+                for path in missing_annotations
             )
-    """
+        )
 
-    return
+    raws_annotated = [
+        mne.io.read_raw_fif(
+            path,
+            preload=True,
+        )
+        for path in annot_files
+    ]
 
+    print(
+        f"Loaded {len(raws_annotated)} "
+        "artifact-annotated runs."
+    )
+    # ============================================================
+    # 2.5) Apply ICA
+    # ============================================================
+
+    if run_ica:
+
+        print("\n===== Apply ICA =====")
+
+        run_apply_ica(
+            raws=raws_annotated,
+            out_paths=out_paths,
+            names=names,
+            subject=subject,
+        )
+
+        print("✔ ICA application complete.")
+
+    # Close annotated data
+
+    for raw in raws_annotated:
+        raw.close()
+
+    del raws_annotated
+
+    gc.collect()
+
+    # ============================================================
+    # 2.6) Load ICA-cleaned concatenated raw
+    # ============================================================
+
+    concat_clean_path = (
+        out_paths["03_ica"]
+        / f"{subject}_03_ica_concat_raw.fif"
+    )
+
+    if not concat_clean_path.exists():
+
+        raise FileNotFoundError(
+            f"ICA-cleaned concatenated file not found:\n"
+            f"{concat_clean_path}"
+        )
+
+    raw_concat = mne.io.read_raw_fif(
+        concat_clean_path,
+        preload=True,
+    )
+
+    print(
+        f"Loaded ICA-cleaned data:\n"
+        f"{concat_clean_path}"
+    )
+
+    # ============================================================
+    # 2.7) PHASE 1
+    # Onset: -100 → +500 ms
+    # ============================================================
+
+    if run_phase1:
+
+        print("\n" + "=" * 60)
+        print("PHASE 1 — ONSET -100 to +500 ms")
+        print("=" * 60)
+
+        run_epochs_onset_creator(
+            raw_concat=raw_concat,
+            out_paths=out_paths,
+            subject=subject,
+
+            baseline=(-0.1, 0),
+
+            tmin=-0.1,
+            tmax=0.5,
+
+            l_freq=1.0,
+            h_freq=35.0,
+        )
+
+        print("✔ Phase 1 complete.")
+
+    # ============================================================
+    # 2.8) PHASE 2
+    # Onset: -200 → +2000 ms
+    # ============================================================
+
+    if run_phase2:
+
+        print("\n" + "=" * 60)
+        print("PHASE 2 — ONSET -200 to +2000 ms")
+        print("=" * 60)
+
+        run_epochs_onset_creator(
+            raw_concat=raw_concat,
+            out_paths=out_paths,
+            subject=subject,
+
+            baseline=(-0.2, 0),
+
+            tmin=-0.2,
+            tmax=2.0,
+
+            l_freq=1.0,
+            h_freq=35.0,
+        )
+
+        print("✔ Phase 2 complete.")
+
+    # ============================================================
+    # 2.9) PHASE 3
+    # Offset: -100 → +500 ms
+    # ============================================================
+
+    if run_phase3:
+
+        print("\n" + "=" * 60)
+        print("PHASE 3 — OFFSET -100 to +500 ms")
+        print("=" * 60)
+
+        for method in (
+            "mag",
+            "grad",
+            "eeg",
+        ):
+
+            print(
+                f"\n--- Creating offset epochs: {method} ---"
+            )
+
+            run_epoch_offset_creator(
+                out_paths=out_paths,
+                subject=subject,
+                method=method,
+                crop=True,
+            )
+
+        print("✔ Phase 3 complete.")
+
+    # ============================================================
+    # 2.10) Close data
+    # ============================================================
+
+    raw_concat.close()
+
+    del raw_concat
+
+    gc.collect()
+
+    # ============================================================
+    # 2.11) Finish
+    # ============================================================
+
+    elapsed = time.perf_counter() - start_time
+
+    minutes = int(elapsed // 60)
+    seconds = elapsed % 60
+
+    print("\n" + "=" * 60)
+    print(
+        f"{subject} preprocessing part 2 completed."
+    )
+    print(
+        f"Finished in {minutes} min {seconds:.1f} s"
+    )
+    print("=" * 60)
+
+
+# %%
+# 3) Command line
+# %%
 if __name__ == "__main__":
-    run_full_pipeline_part2("CA107")
+
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--subject",
+        required=True,
+    )
+
+    args = parser.parse_args()
+
+    run_full_pipeline_part2(
+        subject=args.subject,
+    )
 # %%

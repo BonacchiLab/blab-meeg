@@ -2,6 +2,12 @@
 # ============================================================
 # General temporal decoding pipeline
 # ============================================================
+import os
+
+# Limitar threads do OpenBLAS e OpenMP
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 import sys
 from pathlib import Path
@@ -9,7 +15,9 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import mne
+import gc 
 
+from joblib import Parallel, delayed
 from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold
@@ -24,7 +32,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from utils.paths import create_output_folders
 
-
 # ============================================================
 # 1. USER SETTINGS
 # ============================================================
@@ -35,11 +42,12 @@ N_SPLITS = 5
 
 BALANCE_MODE = "tolerant"
 BALANCE_THRESHOLD = 0.20
-N_BALANCING_REPETITIONS = 2
+N_BALANCING_REPETITIONS = 20
 BASE_RANDOM_STATE = 19
 
 METHOD = "grad"
 
+N_JOBS = 5   # paralelizar folds
 
 # ============================================================
 # 2. ANALYSIS DEFINITIONS
@@ -472,6 +480,43 @@ def print_trial_information(
 # ============================================================
 
 
+
+
+def _run_fold(
+    fold_idx,
+    train_idx,
+    test_idx,
+    X,
+    y,
+    time_indices,
+    classifier,
+):
+    """
+    Run one CV fold across all time points.
+    """
+
+    X_train = X[train_idx]
+    X_test = X[test_idx]
+    y_train = y[train_idx]
+    y_test = y[test_idx]
+
+    fold_score = np.full(len(time_indices), np.nan)
+
+    for i, time_idx in enumerate(time_indices):
+
+        X_train_t = X_train[:, :, time_idx]
+        X_test_t = X_test[:, :, time_idx]
+
+        clf = clone(classifier)
+        clf.fit(X_train_t, y_train)
+
+        decision_values = clf.decision_function(X_test_t)
+
+        fold_score[i] = roc_auc_score(y_test, decision_values)
+
+    return fold_idx, fold_score
+
+
 def compute_decoding_curve(
     X,
     y,
@@ -479,7 +524,14 @@ def compute_decoding_curve(
     classifier,
     n_splits=5,
     random_state=19,
+    n_jobs=5,
 ):
+    """
+    Compute temporal decoding with parallelized folds.
+
+    n_jobs:
+        Number of parallel folds. Use <= n_splits.
+    """
 
     cv = StratifiedKFold(
         n_splits=n_splits,
@@ -487,35 +539,31 @@ def compute_decoding_curve(
         random_state=random_state,
     )
 
-    fold_scores = np.full(
-        (n_splits, len(times)),
-        np.nan,
+    time_indices = np.arange(len(times))
+
+    fold_splits = list(cv.split(X, y))
+
+    results = Parallel(n_jobs=n_jobs, backend="loky")(
+        delayed(_run_fold)(
+            fold_idx,
+            train_idx,
+            test_idx,
+            X,
+            y,
+            time_indices,
+            classifier,
+        )
+        for fold_idx, (train_idx, test_idx) in enumerate(fold_splits)
     )
 
-    for fold_idx, (train_idx, test_idx) in enumerate(cv.split(X, y)):
-        X_train = X[train_idx]
-        X_test = X[test_idx]
+    fold_scores = np.full((n_splits, len(times)), np.nan)
 
-        y_train = y[train_idx]
-        y_test = y[test_idx]
-
-        for time_idx in range(len(times)):
-            X_train_t = X_train[:, :, time_idx]
-            X_test_t = X_test[:, :, time_idx]
-
-            clf = clone(classifier)
-            clf.fit(X_train_t, y_train)
-
-            decision_values = clf.decision_function(X_test_t)
-
-            fold_scores[fold_idx, time_idx] = roc_auc_score(
-                y_test,
-                decision_values,
-            )
+    for fold_idx, fold_score in results:
+        fold_scores[fold_idx] = fold_score
 
     scores = np.nanmean(fold_scores, axis=0)
-    return scores, fold_scores
 
+    return scores, fold_scores
 
 def get_picks(info, method):
 
@@ -568,6 +616,7 @@ def temporal_decoding(
     base_random_state=19,
     tmin=None,
     tmax=None,
+    n_jobs=5,   # <-- novo
 ):
 
     if tmin is not None or tmax is not None:
@@ -647,6 +696,7 @@ def temporal_decoding(
             classifier=classifier,
             n_splits=n_splits,
             random_state=repetition_seed,
+            n_jobs=n_jobs,
         )
 
         repetition_scores.append(scores)
@@ -1021,6 +1071,7 @@ def run_single_analysis(
         base_random_state=BASE_RANDOM_STATE,
         tmin=analysis["tmin"],
         tmax=analysis["tmax"],
+        n_jobs=N_JOBS,
     )
 
     save_decoding_results(
@@ -1045,223 +1096,263 @@ def run_single_analysis(
 # 18. MAIN
 # ============================================================
 
+
 if __name__ == "__main__":
-    # ========================================================
-    # SUBJECT
-    # ========================================================
+    outroot = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT")
 
-    subject = "CA124"
+    subjects = sorted([
+        p.name
+        for p in outroot.iterdir()
+        if p.is_dir() and p.name.startswith(("CA", "CB"))
+    ])
 
-    # ========================================================
-    # QUESTIONS
-    # ========================================================
+    if not subjects:
+        raise RuntimeError(f"Nenhum subject encontrado em {outroot}")
 
-    RUN_MODES = ["Q3", "Q4", "Q5"]
+    # --------------------------------------------------------
+    # RETOMAR A PARTIR DE UM SUBJECT
+    # --------------------------------------------------------
+    START_FROM = "CA145"          # None para correr todos
+    RUN_ONLY   = None             # ex.: ["CA105", "CA106"]
 
-    # ========================================================
-    # COMPARISONS TO RUN
-    # ========================================================
-    #
-    # Options:
-    #
-    # 1) None
-    #    -> use the full library (CATEGORY_COMPARISONS)
-    #
-    # 2) List of names (must exist in the library)
-    #    -> filter the library
-    #
-    #    COMPARISONS_TO_RUN = ["faces_vs_rest"]
-    #    COMPARISONS_TO_RUN = ["faces_vs_objects", "objects_vs_fonts"]
-    #
-    # 3) List of dicts (ad-hoc comparisons)
-    #    -> use them directly
-    #
-    #    COMPARISONS_TO_RUN = [
-    #        {
-    #            "name": "faces_vs_objects",
-    #            "condition_a": {"category": "faces"},
-    #            "condition_b": {"category": "objects"},
-    #        },
-    #    ]
-    #
-    # 4) Mixed list of names and dicts
-    #    -> strings resolved from library, dicts used directly
-    #
-    #    COMPARISONS_TO_RUN = [
-    #        "faces_vs_rest",
-    #        make_1v1("objects", "fonts"),
-    #    ]
-    #
-    # 5) Helpers to build comparisons inline:
-    #
-    #    make_1v1("faces", "objects")
-    #    make_1vrest("faces")
-    #
-    # ========================================================
 
-    # Example 1 — run only faces_vs_rest (from library):
-    # COMPARISONS_TO_RUN = ["faces_vs_rest"]
 
-    # Example 2 — run only the one-vs-rest comparisons:
-    # COMPARISONS_TO_RUN = [
-    #     "faces_vs_rest",
-    #     "objects_vs_rest",
-    #     "fonts_vs_rest",
-    #     "false_fonts_vs_rest",
-    # ]
+    #a partir do CA132 nao ha Q2 pra frente 
+    
+    if RUN_ONLY is not None:
+        subjects = [s for s in subjects if s in RUN_ONLY]
 
-    # Example 3 — run a custom mix:
-    # COMPARISONS_TO_RUN = [
-    #     make_1vrest("faces"),
-    #     make_1v1("objects", "fonts"),
-    # ]
+    if START_FROM is not None:
+        if START_FROM not in subjects:
+            raise ValueError(f"{START_FROM} não está em {subjects}")
+        subjects = subjects[subjects.index(START_FROM):]
 
-    # Default: run everything in the library.
-    COMPARISONS_TO_RUN = ["faces_vs_rest"]
-
-    # ========================================================
-    # METHOD
-    # ========================================================
-
-    method = "grad"
-
-    # ========================================================
-    # OUTPUT PATHS
-    # ========================================================
-
-    out_paths = create_output_folders(subject=subject)
-
-    decoding_path = out_paths["decoding"]
-
-    for directory in ["Data_Files", "Plots"]:
-        (decoding_path / directory).mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-    # ========================================================
-    # RESOLVE COMPARISONS
-    # ========================================================
-
-    selected_comparisons = resolve_comparisons(COMPARISONS_TO_RUN)
-
-    print()
     print("=" * 60)
-    print("Selected comparisons")
+    print(f"Subjects a correr ({len(subjects)}): {subjects}")
     print("=" * 60)
 
-    for comparison in selected_comparisons:
-        print(f" - {comparison['name']}")
+    for subject in subjects:
 
-    # ========================================================
-    # LOOP OVER QUESTIONS
-    # ========================================================
+        # ========================================================
+        # QUESTIONS
+        # ========================================================
 
-    for run_mode in RUN_MODES:
+        RUN_MODES = ["Q1"]
+
+        # ========================================================
+        # COMPARISONS TO RUN
+        # ========================================================
+        #
+        # Options:
+        #
+        # 1) None
+        #    -> use the full library (CATEGORY_COMPARISONS)
+        #
+        # 2) List of names (must exist in the library)
+        #    -> filter the library
+        #
+        #    COMPARISONS_TO_RUN = ["faces_vs_rest"]
+        #    COMPARISONS_TO_RUN = ["faces_vs_objects", "objects_vs_fonts"]
+        #
+        # 3) List of dicts (ad-hoc comparisons)
+        #    -> use them directly
+        #
+        #    COMPARISONS_TO_RUN = [
+        #        {
+        #            "name": "faces_vs_objects",
+        #            "condition_a": {"category": "faces"},
+        #            "condition_b": {"category": "objects"},
+        #        },
+        #    ]
+        #
+        # 4) Mixed list of names and dicts
+        #    -> strings resolved from library, dicts used directly
+        #
+        #    COMPARISONS_TO_RUN = [
+        #        "faces_vs_rest",
+        #        make_1v1("objects", "fonts"),
+        #    ]
+        #
+        # 5) Helpers to build comparisons inline:
+        #
+        #    make_1v1("faces", "objects")
+        #    make_1vrest("faces")
+        #
+        # ========================================================
+
+        # Example 1 — run only faces_vs_rest (from library):
+        # COMPARISONS_TO_RUN = ["faces_vs_rest"]
+
+        # Example 2 — run only the one-vs-rest comparisons:
+        # COMPARISONS_TO_RUN = [
+        #     "faces_vs_rest",
+        #     "objects_vs_rest",
+        #     "fonts_vs_rest",
+        #     "false_fonts_vs_rest",
+        # ]
+
+        # Example 3 — run a custom mix:
+        # COMPARISONS_TO_RUN = [
+        #     make_1vrest("faces"),
+        #     make_1v1("objects", "fonts"),
+        # ]
+
+        # Default: run everything in the library.
+        COMPARISONS_TO_RUN = [make_1v1("faces", "objects"),
+        make_1v1("faces", "fonts"),
+        make_1v1("faces", "false_fonts"),
+        make_1v1("objects", "fonts"),
+        make_1v1("objects", "false_fonts"),
+        make_1v1("fonts", "false_fonts"),]
+
+        # ========================================================
+        # METHOD
+        # ========================================================
+
+        method = "grad"
+
+        # ========================================================
+        # OUTPUT PATHS
+        # ========================================================
+
+        out_paths = create_output_folders(subject=subject)
+
+        decoding_path = out_paths["decoding"]
+
+        for directory in ["Data_Files", "Plots"]:
+            (decoding_path / directory).mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+        # ========================================================
+        # RESOLVE COMPARISONS
+        # ========================================================
+
+        selected_comparisons = resolve_comparisons(COMPARISONS_TO_RUN)
+
         print()
-        print("#" * 60)
-        print(f"# RUN MODE: {run_mode}")
-        print("#" * 60)
+        print("=" * 60)
+        print("Selected comparisons")
+        print("=" * 60)
 
-        # ----------------------------------------------------
-        # CUSTOM ANALYSES
-        # ----------------------------------------------------
+        for comparison in selected_comparisons:
+            print(f" - {comparison['name']}")
 
-        if run_mode == "CUSTOM":
-            analyses = CUSTOM_ANALYSES
+        # ========================================================
+        # LOOP OVER QUESTIONS
+        # ========================================================
 
-            analyses_by_phase = {}
+        for run_mode in RUN_MODES:
+            print()
+            print("#" * 60)
+            print(f"# RUN MODE: {run_mode}")
+            print("#" * 60)
 
-            for analysis in analyses:
-                phase = analysis["phase"]
+            # ----------------------------------------------------
+            # CUSTOM ANALYSES
+            # ----------------------------------------------------
 
-                if phase not in analyses_by_phase:
-                    analyses_by_phase[phase] = []
+            if run_mode == "CUSTOM":
+                analyses = CUSTOM_ANALYSES
 
-                analyses_by_phase[phase].append(analysis)
+                analyses_by_phase = {}
 
-            for phase, phase_analyses in analyses_by_phase.items():
-                epochs = load_epochs(
-                    subject=subject,
-                    phase=phase,
-                    out_paths=out_paths,
-                    method=method,
-                )
+                for analysis in analyses:
+                    phase = analysis["phase"]
 
-                for analysis in phase_analyses:
-                    run_single_analysis(
-                        epochs=epochs,
-                        analysis=analysis,
-                        question="Q0",
+                    if phase not in analyses_by_phase:
+                        analyses_by_phase[phase] = []
+
+                    analyses_by_phase[phase].append(analysis)
+
+                for phase, phase_analyses in analyses_by_phase.items():
+                    epochs = load_epochs(
                         subject=subject,
+                        phase=phase,
                         out_paths=out_paths,
                         method=method,
                     )
 
-            continue
+                    for analysis in phase_analyses:
+                        run_single_analysis(
+                            epochs=epochs,
+                            analysis=analysis,
+                            question="Q0",
+                            subject=subject,
+                            out_paths=out_paths,
+                            method=method,
+                        )
 
-        # ----------------------------------------------------
-        # STANDARD QUESTIONS Q1-Q5
-        # ----------------------------------------------------
+                continue
 
-        if run_mode not in QUESTION_CONFIGS:
-            raise ValueError(f"Unknown run mode: {run_mode}")
+            # ----------------------------------------------------
+            # STANDARD QUESTIONS Q1-Q5
+            # ----------------------------------------------------
 
-        config = QUESTION_CONFIGS[run_mode]
+            if run_mode not in QUESTION_CONFIGS:
+                raise ValueError(f"Unknown run mode: {run_mode}")
 
-        # ----------------------------------------------------
-        # LOAD EPOCHS
-        # ----------------------------------------------------
+            config = QUESTION_CONFIGS[run_mode]
 
-        epochs = load_epochs(
-            subject=subject,
-            phase=config["phase"],
-            out_paths=out_paths,
-            method=method,
-        )
+            # ----------------------------------------------------
+            # LOAD EPOCHS
+            # ----------------------------------------------------
 
-        # ----------------------------------------------------
-        # BUILD ANALYSES
-        # ----------------------------------------------------
-
-        analyses = build_analyses_for_question(
-            run_mode=run_mode,
-            category_comparisons=selected_comparisons,
-        )
-
-        for analysis in analyses:
-            analysis["phase"] = config["phase"]
-            analysis["tmin"] = config["tmin"]
-            analysis["tmax"] = config["tmax"]
-
-        print()
-        print("=" * 60)
-        print(f"Running {run_mode}")
-        print(f"Number of analyses: {len(analyses)}")
-        print("=" * 60)
-
-        # ----------------------------------------------------
-        # RUN ANALYSES
-        # ----------------------------------------------------
-
-        for analysis_idx, analysis in enumerate(analyses):
-            print()
-            print("=" * 60)
-            print(f"Analysis {analysis_idx + 1}/{len(analyses)}")
-            print(analysis["name"])
-            print("=" * 60)
-
-            run_single_analysis(
-                epochs=epochs,
-                analysis=analysis,
-                question=run_mode,
+            epochs = load_epochs(
                 subject=subject,
+                phase=config["phase"],
                 out_paths=out_paths,
                 method=method,
             )
 
-    print()
-    print("=" * 60)
-    print("All analyses completed")
-    print("=" * 60)
+            # ----------------------------------------------------
+            # BUILD ANALYSES
+            # ----------------------------------------------------
+
+            analyses = build_analyses_for_question(
+                run_mode=run_mode,
+                category_comparisons=selected_comparisons,
+            )
+
+            for analysis in analyses:
+                analysis["phase"] = config["phase"]
+                analysis["tmin"] = config["tmin"]
+                analysis["tmax"] = config["tmax"]
+
+            print()
+            print("=" * 60)
+            print(f"Running {run_mode}")
+            print(f"Number of analyses: {len(analyses)}")
+            print("=" * 60)
+
+            # ----------------------------------------------------
+            # RUN ANALYSES
+            # ----------------------------------------------------
+
+            for analysis_idx, analysis in enumerate(analyses):
+                print()
+                print("=" * 60)
+                print(f"Analysis {analysis_idx + 1}/{len(analyses)}")
+                print(analysis["name"])
+                print("=" * 60)
+
+
+                run_single_analysis(
+                    epochs=epochs,
+                    analysis=analysis,
+                    question=run_mode,
+                    subject=subject,
+                    out_paths=out_paths,
+                    method=method,
+                )
+        
+                
+            del epochs
+            gc.collect()
+        
+        print()
+        print("=" * 60)
+        print("All analyses completed")
+        print("=" * 60)
 # %%
