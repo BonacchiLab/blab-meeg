@@ -12,6 +12,7 @@ def create_output_folders(
         "Group_Tables",
         "Figures",
         "Group_Reports",
+        "Group_Data_Files",
     ]
 
     preproc_dirs = [
