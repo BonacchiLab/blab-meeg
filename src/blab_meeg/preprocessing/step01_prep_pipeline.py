@@ -301,7 +301,7 @@ def run_prep_pipeline(
 
         report.save(
             out_paths["docs_01_prep_pipeline"] / "01_prep_pipeline_report.html",
-            overwrite=True,
+            overwrite=True, open_browser=False,
         )
 
         with open(

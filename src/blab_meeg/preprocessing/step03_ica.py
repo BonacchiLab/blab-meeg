@@ -229,7 +229,7 @@ def run_train_ica(
                 indent=4,
             )
 
-        report.save(out_paths["docs_03_ica"] / "03_ica_report.html", overwrite=True)
+        report.save(out_paths["docs_03_ica"] / "03_ica_report.html", overwrite=True, open_browser=False)
 
         del report
     plt.close("all")
@@ -361,11 +361,11 @@ def run_apply_ica(
     # Creates a detailed report including:
     # Proprieties of the removed components (topographies, scores)
 
-    fig_ica_meg = ica_meg.plot_properties(raws[0], picks=meg_picks)
+    fig_ica_meg = ica_meg.plot_properties(raws[0], picks=meg_picks, show=False)
     report.add_figure(fig_ica_meg, title="ICA meg components removed")
 
     if ica_eeg is not None and len(eeg_picks) > 0:
-        fig_ica_eeg = ica_eeg.plot_properties(raws[0], picks=eeg_picks)
+        fig_ica_eeg = ica_eeg.plot_properties(raws[0], picks=eeg_picks, show=False)
         report.add_figure(fig_ica_eeg, title="ICA eeg components removed")
 
     # fig_all = raw_concat.copy().plot(duration=raw_concat.times[-1], butterfly=True, show=False)
@@ -380,7 +380,7 @@ def run_apply_ica(
     # - HTML report documenting removed components
 
     report.save(
-        out_paths["docs_03_ica"] / "03_ica_completed_report.html", overwrite=True
+        out_paths["docs_03_ica"] / "03_ica_completed_report.html", overwrite=True, open_browser=False,
     )
 
     raw_concat.save(

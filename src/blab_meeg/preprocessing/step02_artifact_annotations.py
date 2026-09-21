@@ -262,7 +262,7 @@ def run_artifact_annotations(
         report.save(
             out_paths["docs_02_artifact_annotations"]
             / "02_artifact_annotations_report.html",
-            overwrite=True,
+            overwrite=True, open_browser=False,
         )
         del report
 

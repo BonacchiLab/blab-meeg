@@ -4,7 +4,7 @@
 # ============================================================
 import os
 
-# Já tens:
+# Limitar threads do OpenBLAS e OpenMP
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -15,7 +15,9 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import mne
+import gc
 
+from joblib import Parallel, delayed
 from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold
@@ -30,7 +32,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from utils.paths import create_output_folders
 
-
 # ============================================================
 # 1. USER SETTINGS
 # ============================================================
@@ -41,10 +42,12 @@ N_SPLITS = 5
 
 BALANCE_MODE = "tolerant"
 BALANCE_THRESHOLD = 0.20
-N_BALANCING_REPETITIONS = 40
+N_BALANCING_REPETITIONS = 10
 BASE_RANDOM_STATE = 19
 
 METHOD = "grad"
+
+N_JOBS = 5  # paralelizar folds
 
 # ============================================================
 # 2. ANALYSIS DEFINITIONS
@@ -477,6 +480,40 @@ def print_trial_information(
 # ============================================================
 
 
+def _run_fold(
+    fold_idx,
+    train_idx,
+    test_idx,
+    X,
+    y,
+    time_indices,
+    classifier,
+):
+    """
+    Run one CV fold across all time points.
+    """
+
+    X_train = X[train_idx]
+    X_test = X[test_idx]
+    y_train = y[train_idx]
+    y_test = y[test_idx]
+
+    fold_score = np.full(len(time_indices), np.nan)
+
+    for i, time_idx in enumerate(time_indices):
+        X_train_t = X_train[:, :, time_idx]
+        X_test_t = X_test[:, :, time_idx]
+
+        clf = clone(classifier)
+        clf.fit(X_train_t, y_train)
+
+        decision_values = clf.decision_function(X_test_t)
+
+        fold_score[i] = roc_auc_score(y_test, decision_values)
+
+    return fold_idx, fold_score
+
+
 def compute_decoding_curve(
     X,
     y,
@@ -484,7 +521,14 @@ def compute_decoding_curve(
     classifier,
     n_splits=5,
     random_state=19,
+    n_jobs=5,
 ):
+    """
+    Compute temporal decoding with parallelized folds.
+
+    n_jobs:
+        Number of parallel folds. Use <= n_splits.
+    """
 
     cv = StratifiedKFold(
         n_splits=n_splits,
@@ -492,33 +536,30 @@ def compute_decoding_curve(
         random_state=random_state,
     )
 
-    fold_scores = np.full(
-        (n_splits, len(times)),
-        np.nan,
+    time_indices = np.arange(len(times))
+
+    fold_splits = list(cv.split(X, y))
+
+    results = Parallel(n_jobs=n_jobs, backend="loky")(
+        delayed(_run_fold)(
+            fold_idx,
+            train_idx,
+            test_idx,
+            X,
+            y,
+            time_indices,
+            classifier,
+        )
+        for fold_idx, (train_idx, test_idx) in enumerate(fold_splits)
     )
 
-    for fold_idx, (train_idx, test_idx) in enumerate(cv.split(X, y)):
-        X_train = X[train_idx]
-        X_test = X[test_idx]
+    fold_scores = np.full((n_splits, len(times)), np.nan)
 
-        y_train = y[train_idx]
-        y_test = y[test_idx]
-
-        for time_idx in range(len(times)):
-            X_train_t = X_train[:, :, time_idx]
-            X_test_t = X_test[:, :, time_idx]
-
-            clf = clone(classifier)
-            clf.fit(X_train_t, y_train)
-
-            decision_values = clf.decision_function(X_test_t)
-
-            fold_scores[fold_idx, time_idx] = roc_auc_score(
-                y_test,
-                decision_values,
-            )
+    for fold_idx, fold_score in results:
+        fold_scores[fold_idx] = fold_score
 
     scores = np.nanmean(fold_scores, axis=0)
+
     return scores, fold_scores
 
 
@@ -573,6 +614,7 @@ def temporal_decoding(
     base_random_state=19,
     tmin=None,
     tmax=None,
+    n_jobs=5,  # <-- novo
 ):
 
     if tmin is not None or tmax is not None:
@@ -652,6 +694,7 @@ def temporal_decoding(
             classifier=classifier,
             n_splits=n_splits,
             random_state=repetition_seed,
+            n_jobs=n_jobs,
         )
 
         repetition_scores.append(scores)
@@ -1026,6 +1069,7 @@ def run_single_analysis(
         base_random_state=BASE_RANDOM_STATE,
         tmin=analysis["tmin"],
         tmax=analysis["tmax"],
+        n_jobs=N_JOBS,
     )
 
     save_decoding_results(
@@ -1050,410 +1094,262 @@ def run_single_analysis(
 # 18. MAIN
 # ============================================================
 
+
 if __name__ == "__main__":
-    # ========================================================
-    # SUBJECT
-    # ========================================================
+    outroot = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT")
 
-    subject = "CA124"
+    subjects = sorted(
+        [
+            p.name
+            for p in outroot.iterdir()
+            if p.is_dir() and p.name.startswith(("CA", "CB"))
+        ]
+    )
 
-    # ========================================================
-    # QUESTIONS
-    # ========================================================
+    if not subjects:
+        raise RuntimeError(f"Nenhum subject encontrado em {outroot}")
 
-    RUN_MODES = ["Q1"]
+    # --------------------------------------------------------
+    # RETOMAR A PARTIR DE UM SUBJECT
+    # --------------------------------------------------------
+    START_FROM = "CA132"  # None para correr todos
+    RUN_ONLY = None  # ex.: ["CA105", "CA106"]
 
-    # ========================================================
-    # COMPARISONS TO RUN
-    # ========================================================
-    #
-    # Options:
-    #
-    # 1) None
-    #    -> use the full library (CATEGORY_COMPARISONS)
-    #
-    # 2) List of names (must exist in the library)
-    #    -> filter the library
-    #
-    #    COMPARISONS_TO_RUN = ["faces_vs_rest"]
-    #    COMPARISONS_TO_RUN = ["faces_vs_objects", "objects_vs_fonts"]
-    #
-    # 3) List of dicts (ad-hoc comparisons)
-    #    -> use them directly
-    #
-    #    COMPARISONS_TO_RUN = [
-    #        {
-    #            "name": "faces_vs_objects",
-    #            "condition_a": {"category": "faces"},
-    #            "condition_b": {"category": "objects"},
-    #        },
-    #    ]
-    #
-    # 4) Mixed list of names and dicts
-    #    -> strings resolved from library, dicts used directly
-    #
-    #    COMPARISONS_TO_RUN = [
-    #        "faces_vs_rest",
-    #        make_1v1("objects", "fonts"),
-    #    ]
-    #
-    # 5) Helpers to build comparisons inline:
-    #
-    #    make_1v1("faces", "objects")
-    #    make_1vrest("faces")
-    #
-    # ========================================================
+    # a partir do CA132 nao ha Q2 pra frente
 
-    # Example 1 — run only faces_vs_rest (from library):
-    # COMPARISONS_TO_RUN = ["faces_vs_rest"]
+    if RUN_ONLY is not None:
+        subjects = [s for s in subjects if s in RUN_ONLY]
 
-    # Example 2 — run only the one-vs-rest comparisons:
-    # COMPARISONS_TO_RUN = [
-    #     "faces_vs_rest",
-    #     "objects_vs_rest",
-    #     "fonts_vs_rest",
-    #     "false_fonts_vs_rest",
-    # ]
+    if START_FROM is not None:
+        if START_FROM not in subjects:
+            raise ValueError(f"{START_FROM} não está em {subjects}")
+        subjects = subjects[subjects.index(START_FROM) :]
 
-    # Example 3 — run a custom mix:
-    # COMPARISONS_TO_RUN = [
-    #     make_1vrest("faces"),
-    #     make_1v1("objects", "fonts"),
-    # ]
-
-    # Default: run everything in the library.
-    COMPARISONS_TO_RUN = ["faces_vs_rest"]
-
-    # ========================================================
-    # METHOD
-    # ========================================================
-
-    method = "grad"
-
-    # ========================================================
-    # OUTPUT PATHS
-    # ========================================================
-
-    out_paths = create_output_folders(subject=subject)
-
-    decoding_path = out_paths["decoding"]
-
-    for directory in ["Data_Files", "Plots"]:
-        (decoding_path / directory).mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-    # ========================================================
-    # RESOLVE COMPARISONS
-    # ========================================================
-
-    selected_comparisons = resolve_comparisons(COMPARISONS_TO_RUN)
-
-    print()
     print("=" * 60)
-    print("Selected comparisons")
+    print(f"Subjects a correr ({len(subjects)}): {subjects}")
     print("=" * 60)
 
-    for comparison in selected_comparisons:
-        print(f" - {comparison['name']}")
+    for subject in subjects:
+        # ========================================================
+        # QUESTIONS
+        # ========================================================
 
-    # ========================================================
-    # LOOP OVER QUESTIONS
-    # ========================================================
+        RUN_MODES = ["Q1", "Q2", "Q3"]
 
-    for run_mode in RUN_MODES:
+        # ========================================================
+        # COMPARISONS TO RUN
+        # ========================================================
+        #
+        # Options:
+        #
+        # 1) None
+        #    -> use the full library (CATEGORY_COMPARISONS)
+        #
+        # 2) List of names (must exist in the library)
+        #    -> filter the library
+        #
+        #    COMPARISONS_TO_RUN = ["faces_vs_rest"]
+        #    COMPARISONS_TO_RUN = ["faces_vs_objects", "objects_vs_fonts"]
+        #
+        # 3) List of dicts (ad-hoc comparisons)
+        #    -> use them directly
+        #
+        #    COMPARISONS_TO_RUN = [
+        #        {
+        #            "name": "faces_vs_objects",
+        #            "condition_a": {"category": "faces"},
+        #            "condition_b": {"category": "objects"},
+        #        },
+        #    ]
+        #
+        # 4) Mixed list of names and dicts
+        #    -> strings resolved from library, dicts used directly
+        #
+        #    COMPARISONS_TO_RUN = [
+        #        "faces_vs_rest",
+        #        make_1v1("objects", "fonts"),
+        #    ]
+        #
+        # 5) Helpers to build comparisons inline:
+        #
+        #    make_1v1("faces", "objects")
+        #    make_1vrest("faces")
+        #
+        # ========================================================
+
+        # Example 1 — run only faces_vs_rest (from library):
+        # COMPARISONS_TO_RUN = ["faces_vs_rest"]
+
+        # Example 2 — run only the one-vs-rest comparisons:
+        # COMPARISONS_TO_RUN = [
+        #     "faces_vs_rest",
+        #     "objects_vs_rest",
+        #     "fonts_vs_rest",
+        #     "false_fonts_vs_rest",
+        # ]
+
+        # Example 3 — run a custom mix:
+        # COMPARISONS_TO_RUN = [
+        #     make_1vrest("faces"),
+        #     make_1v1("objects", "fonts"),
+        # ]
+
+        # Default: run everything in the library.
+        COMPARISONS_TO_RUN = [
+            "faces_vs_objects",
+            "faces_vs_fonts",
+            "faces_vs_false_fonts",
+            "objects_vs_fonts",
+            "objects_vs_false_fonts",
+            "fonts_vs_false_fonts",
+        ]
+
+        # ========================================================
+        # METHOD
+        # ========================================================
+
+        method = "grad"
+
+        # ========================================================
+        # OUTPUT PATHS
+        # ========================================================
+
+        out_paths = create_output_folders(subject=subject)
+
+        decoding_path = out_paths["decoding"]
+
+        for directory in ["Data_Files", "Plots"]:
+            (decoding_path / directory).mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+        # ========================================================
+        # RESOLVE COMPARISONS
+        # ========================================================
+
+        selected_comparisons = resolve_comparisons(COMPARISONS_TO_RUN)
+
         print()
-        print("#" * 60)
-        print(f"# RUN MODE: {run_mode}")
-        print("#" * 60)
+        print("=" * 60)
+        print("Selected comparisons")
+        print("=" * 60)
 
-        # ----------------------------------------------------
-        # CUSTOM ANALYSES
-        # ----------------------------------------------------
+        for comparison in selected_comparisons:
+            print(f" - {comparison['name']}")
 
-        if run_mode == "CUSTOM":
-            analyses = CUSTOM_ANALYSES
+        # ========================================================
+        # LOOP OVER QUESTIONS
+        # ========================================================
 
-            analyses_by_phase = {}
+        for run_mode in RUN_MODES:
+            print()
+            print("#" * 60)
+            print(f"# RUN MODE: {run_mode}")
+            print("#" * 60)
 
-            for analysis in analyses:
-                phase = analysis["phase"]
+            # ----------------------------------------------------
+            # CUSTOM ANALYSES
+            # ----------------------------------------------------
 
-                if phase not in analyses_by_phase:
-                    analyses_by_phase[phase] = []
+            if run_mode == "CUSTOM":
+                analyses = CUSTOM_ANALYSES
 
-                analyses_by_phase[phase].append(analysis)
+                analyses_by_phase = {}
 
-            for phase, phase_analyses in analyses_by_phase.items():
-                epochs = load_epochs(
-                    subject=subject,
-                    phase=phase,
-                    out_paths=out_paths,
-                    method=method,
-                )
+                for analysis in analyses:
+                    phase = analysis["phase"]
 
-                for analysis in phase_analyses:
-                    run_single_analysis(
-                        epochs=epochs,
-                        analysis=analysis,
-                        question="Q0",
+                    if phase not in analyses_by_phase:
+                        analyses_by_phase[phase] = []
+
+                    analyses_by_phase[phase].append(analysis)
+
+                for phase, phase_analyses in analyses_by_phase.items():
+                    epochs = load_epochs(
                         subject=subject,
+                        phase=phase,
                         out_paths=out_paths,
                         method=method,
                     )
 
-            continue
+                    for analysis in phase_analyses:
+                        run_single_analysis(
+                            epochs=epochs,
+                            analysis=analysis,
+                            question="Q0",
+                            subject=subject,
+                            out_paths=out_paths,
+                            method=method,
+                        )
 
-        # ----------------------------------------------------
-        # STANDARD QUESTIONS Q1-Q5
-        # ----------------------------------------------------
+                continue
 
-        if run_mode not in QUESTION_CONFIGS:
-            raise ValueError(f"Unknown run mode: {run_mode}")
+            # ----------------------------------------------------
+            # STANDARD QUESTIONS Q1-Q5
+            # ----------------------------------------------------
 
-        config = QUESTION_CONFIGS[run_mode]
+            if run_mode not in QUESTION_CONFIGS:
+                raise ValueError(f"Unknown run mode: {run_mode}")
 
-        # ----------------------------------------------------
-        # LOAD EPOCHS
-        # ----------------------------------------------------
+            config = QUESTION_CONFIGS[run_mode]
 
-        epochs = load_epochs(
-            subject=subject,
-            phase=config["phase"],
-            out_paths=out_paths,
-            method=method,
-        )
+            # ----------------------------------------------------
+            # LOAD EPOCHS
+            # ----------------------------------------------------
 
-        # ----------------------------------------------------
-        # BUILD ANALYSES
-        # ----------------------------------------------------
-
-        analyses = build_analyses_for_question(
-            run_mode=run_mode,
-            category_comparisons=selected_comparisons,
-        )
-
-        for analysis in analyses:
-            analysis["phase"] = config["phase"]
-            analysis["tmin"] = config["tmin"]
-            analysis["tmax"] = config["tmax"]
-
-        print()
-        print("=" * 60)
-        print(f"Running {run_mode}")
-        print(f"Number of analyses: {len(analyses)}")
-        print("=" * 60)
-
-        # ----------------------------------------------------
-        # RUN ANALYSES
-        # ----------------------------------------------------
-
-        for analysis_idx, analysis in enumerate(analyses):
-            print()
-            print("=" * 60)
-            print(f"Analysis {analysis_idx + 1}/{len(analyses)}")
-            print(analysis["name"])
-            print("=" * 60)
-
-            run_single_analysis(
-                epochs=epochs,
-                analysis=analysis,
-                question=run_mode,
+            epochs = load_epochs(
                 subject=subject,
+                phase=config["phase"],
                 out_paths=out_paths,
                 method=method,
             )
 
-    print()
-    print("=" * 60)
-    print("All analyses completed")
-    print("=" * 60)
+            # ----------------------------------------------------
+            # BUILD ANALYSES
+            # ----------------------------------------------------
 
-# ============================================================
-# Repetition convergence diagnostic
-# ============================================================
+            analyses = build_analyses_for_question(
+                run_mode=run_mode,
+                category_comparisons=selected_comparisons,
+            )
 
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
-import sys
+            for analysis in analyses:
+                analysis["phase"] = config["phase"]
+                analysis["tmin"] = config["tmin"]
+                analysis["tmax"] = config["tmax"]
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+            print()
+            print("=" * 60)
+            print(f"Running {run_mode}")
+            print(f"Number of analyses: {len(analyses)}")
+            print("=" * 60)
 
-from utils.paths import create_output_folders
+            # ----------------------------------------------------
+            # RUN ANALYSES
+            # ----------------------------------------------------
 
+            for analysis_idx, analysis in enumerate(analyses):
+                print()
+                print("=" * 60)
+                print(f"Analysis {analysis_idx + 1}/{len(analyses)}")
+                print(analysis["name"])
+                print("=" * 60)
 
-def check_repetition_convergence(
-    decoding_folder,
-    subject,
-    question,
-    analysis_name,
-    k_values=None,
-    n_draws=200,
-    random_state=19,
-):
-    """
-    Check how the mean curve and its uncertainty change
-    as a function of the number of balancing repetitions.
+                run_single_analysis(
+                    epochs=epochs,
+                    analysis=analysis,
+                    question=run_mode,
+                    subject=subject,
+                    out_paths=out_paths,
+                    method=method,
+                )
 
-    Uses repetition_scores from a decoder NPZ that was run
-    with the maximum number of repetitions (e.g. 20).
+            del epochs
+            gc.collect()
 
-    Parameters
-    ----------
-    k_values : list of int
-        Subset sizes to evaluate. Defaults to [1, 2, 3, 5, 8, 10, 15, 20].
-
-    n_draws : int
-        Number of random subsets drawn per k.
-    """
-
-    if k_values is None:
-        k_values = [1, 2, 3, 5, 8, 10, 15, 20]
-
-    filename = f"{subject}_{question}_{analysis_name}.npz"
-    path = Path(decoding_folder) / "Data_Files" / filename
-
-    if not path.exists():
-        raise FileNotFoundError(f"Missing file:\n{path}")
-
-    data = np.load(path, allow_pickle=True)
-
-    repetition_scores = data["repetition_scores"].astype(float)
-    times = data["times"].astype(float)
-
-    n_reps_total, n_times = repetition_scores.shape
-
-    print(f"Loaded: {path.name}")
-    print(f"Total repetitions available: {n_reps_total}")
-
-    k_values = [k for k in k_values if k <= n_reps_total]
-
-    rng = np.random.default_rng(random_state)
-
-    # Reference: full mean using all repetitions
-    full_mean = repetition_scores.mean(axis=0)
-
-    # ------------------------------------------------
-    # For each k, compute the spread of subset means
-    # ------------------------------------------------
-
-    results = {}
-
-    for k in k_values:
-        subset_means = np.zeros((n_draws, n_times))
-
-        for draw in range(n_draws):
-            idx = rng.choice(n_reps_total, size=k, replace=False)
-            subset_means[draw] = repetition_scores[idx].mean(axis=0)
-
-        # Spread of subset means at each time point
-        sd_across_subsets = subset_means.std(axis=0, ddof=1)
-
-        # Mean absolute deviation from the full mean
-        mean_abs_dev = np.abs(subset_means - full_mean).mean(axis=0)
-
-        results[k] = {
-            "sd_across_subsets": sd_across_subsets,
-            "mean_abs_dev": mean_abs_dev,
-            "subset_means": subset_means,
-        }
-
-    # ------------------------------------------------
-    # Summary metrics
-    # ------------------------------------------------
-
-    print()
-    print("=" * 70)
-    print("CONVERGENCE SUMMARY")
-    print("=" * 70)
-    print(
-        f"{'k':>4} | "
-        f"{'mean SD':>10} | "
-        f"{'max SD':>10} | "
-        f"{'mean |dev|':>12} | "
-        f"{'max |dev|':>10}"
-    )
-    print("-" * 70)
-
-    for k in k_values:
-        sd = results[k]["sd_across_subsets"]
-        dev = results[k]["mean_abs_dev"]
-
-        print(
-            f"{k:>4} | "
-            f"{sd.mean():>10.5f} | "
-            f"{sd.max():>10.5f} | "
-            f"{dev.mean():>12.5f} | "
-            f"{dev.max():>10.5f}"
-        )
-
-    # ------------------------------------------------
-    # Plot
-    # ------------------------------------------------
-
-    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-
-    # Top: SD across subset means vs k
-    ax = axes[0]
-
-    for k in k_values:
-        ax.plot(
-            times * 1000,
-            results[k]["sd_across_subsets"],
-            linewidth=1.5,
-            label=f"k = {k}",
-        )
-
-    ax.set_ylabel("SD across subset means")
-    ax.set_title("Spread of mean curve as a function of k")
-    ax.legend(loc="best", ncol=2)
-    ax.grid(alpha=0.15)
-
-    # Bottom: summary curves
-    ax = axes[1]
-
-    mean_sds = [results[k]["sd_across_subsets"].mean() for k in k_values]
-    mean_devs = [results[k]["mean_abs_dev"].mean() for k in k_values]
-
-    ax.plot(k_values, mean_sds, marker="o", label="Mean SD across subsets")
-    ax.plot(k_values, mean_devs, marker="s", label="Mean |dev| from full mean")
-
-    ax.set_xlabel("Number of repetitions (k)")
-    ax.set_ylabel("Spread (AUC units)")
-    ax.set_title("Convergence as a function of k")
-    ax.legend(loc="best")
-    ax.grid(alpha=0.15)
-
-    fig.tight_layout()
-
-    return results, times
-
-
-if __name__ == "__main__":
-    subject = "CA124"
-    question = "Q1"
-    analysis_name = "faces_vs_rest"
-
-    out_paths = create_output_folders(subject=subject)
-    decoding_folder = out_paths["decoding"]
-
-    results, times = check_repetition_convergence(
-        decoding_folder=decoding_folder,
-        subject=subject,
-        question=question,
-        analysis_name=analysis_name,
-        k_values=[1, 2, 3, 5, 8, 10, 15, 20],
-        n_draws=200,
-    )
-
-    plt.savefig(
-        decoding_folder
-        / "Plots"
-        / f"{subject}_{question}_{analysis_name}_rep_convergence.png",
-        dpi=300,
-        bbox_inches="tight",
-    )
-    plt.show()
+        print()
+        print("=" * 60)
+        print("All analyses completed")
+        print("=" * 60)
 # %%
