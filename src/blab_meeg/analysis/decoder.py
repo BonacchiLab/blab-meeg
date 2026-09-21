@@ -2,6 +2,12 @@
 # ============================================================
 # General temporal decoding pipeline
 # ============================================================
+import os
+
+# Já tens:
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 import sys
 from pathlib import Path
@@ -35,11 +41,10 @@ N_SPLITS = 5
 
 BALANCE_MODE = "tolerant"
 BALANCE_THRESHOLD = 0.20
-N_BALANCING_REPETITIONS = 2
+N_BALANCING_REPETITIONS = 40
 BASE_RANDOM_STATE = 19
 
 METHOD = "grad"
-
 
 # ============================================================
 # 2. ANALYSIS DEFINITIONS
@@ -1056,7 +1061,7 @@ if __name__ == "__main__":
     # QUESTIONS
     # ========================================================
 
-    RUN_MODES = ["Q3", "Q4", "Q5"]
+    RUN_MODES = ["Q1"]
 
     # ========================================================
     # COMPARISONS TO RUN
@@ -1264,4 +1269,191 @@ if __name__ == "__main__":
     print("=" * 60)
     print("All analyses completed")
     print("=" * 60)
+
+# ============================================================
+# Repetition convergence diagnostic
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+import sys
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from utils.paths import create_output_folders
+
+
+def check_repetition_convergence(
+    decoding_folder,
+    subject,
+    question,
+    analysis_name,
+    k_values=None,
+    n_draws=200,
+    random_state=19,
+):
+    """
+    Check how the mean curve and its uncertainty change
+    as a function of the number of balancing repetitions.
+
+    Uses repetition_scores from a decoder NPZ that was run
+    with the maximum number of repetitions (e.g. 20).
+
+    Parameters
+    ----------
+    k_values : list of int
+        Subset sizes to evaluate. Defaults to [1, 2, 3, 5, 8, 10, 15, 20].
+
+    n_draws : int
+        Number of random subsets drawn per k.
+    """
+
+    if k_values is None:
+        k_values = [1, 2, 3, 5, 8, 10, 15, 20]
+
+    filename = f"{subject}_{question}_{analysis_name}.npz"
+    path = Path(decoding_folder) / "Data_Files" / filename
+
+    if not path.exists():
+        raise FileNotFoundError(f"Missing file:\n{path}")
+
+    data = np.load(path, allow_pickle=True)
+
+    repetition_scores = data["repetition_scores"].astype(float)
+    times = data["times"].astype(float)
+
+    n_reps_total, n_times = repetition_scores.shape
+
+    print(f"Loaded: {path.name}")
+    print(f"Total repetitions available: {n_reps_total}")
+
+    k_values = [k for k in k_values if k <= n_reps_total]
+
+    rng = np.random.default_rng(random_state)
+
+    # Reference: full mean using all repetitions
+    full_mean = repetition_scores.mean(axis=0)
+
+    # ------------------------------------------------
+    # For each k, compute the spread of subset means
+    # ------------------------------------------------
+
+    results = {}
+
+    for k in k_values:
+        subset_means = np.zeros((n_draws, n_times))
+
+        for draw in range(n_draws):
+            idx = rng.choice(n_reps_total, size=k, replace=False)
+            subset_means[draw] = repetition_scores[idx].mean(axis=0)
+
+        # Spread of subset means at each time point
+        sd_across_subsets = subset_means.std(axis=0, ddof=1)
+
+        # Mean absolute deviation from the full mean
+        mean_abs_dev = np.abs(subset_means - full_mean).mean(axis=0)
+
+        results[k] = {
+            "sd_across_subsets": sd_across_subsets,
+            "mean_abs_dev": mean_abs_dev,
+            "subset_means": subset_means,
+        }
+
+    # ------------------------------------------------
+    # Summary metrics
+    # ------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("CONVERGENCE SUMMARY")
+    print("=" * 70)
+    print(
+        f"{'k':>4} | "
+        f"{'mean SD':>10} | "
+        f"{'max SD':>10} | "
+        f"{'mean |dev|':>12} | "
+        f"{'max |dev|':>10}"
+    )
+    print("-" * 70)
+
+    for k in k_values:
+        sd = results[k]["sd_across_subsets"]
+        dev = results[k]["mean_abs_dev"]
+
+        print(
+            f"{k:>4} | "
+            f"{sd.mean():>10.5f} | "
+            f"{sd.max():>10.5f} | "
+            f"{dev.mean():>12.5f} | "
+            f"{dev.max():>10.5f}"
+        )
+
+    # ------------------------------------------------
+    # Plot
+    # ------------------------------------------------
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+    # Top: SD across subset means vs k
+    ax = axes[0]
+
+    for k in k_values:
+        ax.plot(
+            times * 1000,
+            results[k]["sd_across_subsets"],
+            linewidth=1.5,
+            label=f"k = {k}",
+        )
+
+    ax.set_ylabel("SD across subset means")
+    ax.set_title("Spread of mean curve as a function of k")
+    ax.legend(loc="best", ncol=2)
+    ax.grid(alpha=0.15)
+
+    # Bottom: summary curves
+    ax = axes[1]
+
+    mean_sds = [results[k]["sd_across_subsets"].mean() for k in k_values]
+    mean_devs = [results[k]["mean_abs_dev"].mean() for k in k_values]
+
+    ax.plot(k_values, mean_sds, marker="o", label="Mean SD across subsets")
+    ax.plot(k_values, mean_devs, marker="s", label="Mean |dev| from full mean")
+
+    ax.set_xlabel("Number of repetitions (k)")
+    ax.set_ylabel("Spread (AUC units)")
+    ax.set_title("Convergence as a function of k")
+    ax.legend(loc="best")
+    ax.grid(alpha=0.15)
+
+    fig.tight_layout()
+
+    return results, times
+
+
+if __name__ == "__main__":
+    subject = "CA124"
+    question = "Q1"
+    analysis_name = "faces_vs_rest"
+
+    out_paths = create_output_folders(subject=subject)
+    decoding_folder = out_paths["decoding"]
+
+    results, times = check_repetition_convergence(
+        decoding_folder=decoding_folder,
+        subject=subject,
+        question=question,
+        analysis_name=analysis_name,
+        k_values=[1, 2, 3, 5, 8, 10, 15, 20],
+        n_draws=200,
+    )
+
+    plt.savefig(
+        decoding_folder
+        / "Plots"
+        / f"{subject}_{question}_{analysis_name}_rep_convergence.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.show()
 # %%
