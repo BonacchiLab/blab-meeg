@@ -42,7 +42,7 @@ N_SPLITS = 5
 
 BALANCE_MODE = "tolerant"
 BALANCE_THRESHOLD = 0.20
-N_BALANCING_REPETITIONS = 20
+N_BALANCING_REPETITIONS = 10
 BASE_RANDOM_STATE = 19
 
 METHOD = "grad"
@@ -1112,7 +1112,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     # RETOMAR A PARTIR DE UM SUBJECT
     # --------------------------------------------------------
-    START_FROM = "CA145"          # None para correr todos
+    START_FROM = "CA132"          # None para correr todos
     RUN_ONLY   = None             # ex.: ["CA105", "CA106"]
 
 
@@ -1137,7 +1137,7 @@ if __name__ == "__main__":
         # QUESTIONS
         # ========================================================
 
-        RUN_MODES = ["Q1"]
+        RUN_MODES = ["Q1", "Q2", "Q3"]
 
         # ========================================================
         # COMPARISONS TO RUN
@@ -1198,12 +1198,14 @@ if __name__ == "__main__":
         # ]
 
         # Default: run everything in the library.
-        COMPARISONS_TO_RUN = [make_1v1("faces", "objects"),
-        make_1v1("faces", "fonts"),
-        make_1v1("faces", "false_fonts"),
-        make_1v1("objects", "fonts"),
-        make_1v1("objects", "false_fonts"),
-        make_1v1("fonts", "false_fonts"),]
+        COMPARISONS_TO_RUN = [
+            "faces_vs_objects",
+            "faces_vs_fonts",
+            "faces_vs_false_fonts",
+            "objects_vs_fonts",
+            "objects_vs_false_fonts",
+            "fonts_vs_false_fonts",
+        ]
 
         # ========================================================
         # METHOD

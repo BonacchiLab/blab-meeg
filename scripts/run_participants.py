@@ -2,12 +2,19 @@ from pathlib import Path
 import subprocess
 import sys
 
+#    
+
 
 
 subjects = [
+    "CB073",
+    "CB074",
+    "CB078",
+    "CB081",
     "CB084",
-    ]
-
+    "CB085",
+    "CB999",
+]
 
 
 script = Path(__file__).parent / "preprocessing_pipeline_1.py"

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from scipy.stats import t
 
@@ -30,7 +31,7 @@ RANDOM_STATE = 19
 # Contrast direction:
 #   "two" -> H1: A != B
 #   "one" -> H1: A > B
-TAIL = "two"
+TAIL = "one"
 
 
 # ============================================================
@@ -631,6 +632,111 @@ def save_paired_cluster_results(
 
     print(f"Cluster results saved to:\n{output_path}")
 
+# ============================================================
+# BUILD CLUSTER TABLE
+# ============================================================
+
+
+def build_cluster_table(
+    results,
+    curves_a,
+    curves_b,
+    times,
+    question,
+    contrast_name,
+    comp_name,
+    label_a,
+    label_b,
+):
+    """
+    Build a pandas DataFrame with one row per significant cluster
+    of the A-B contrast.
+
+    Columns
+    -------
+    Identification
+        question, comparison, contrast, label_a, label_b
+    Contrast (A - B)
+        cluster_id, start_ms, end_ms, duration_ms,
+        peak_time_ms, peak_diff, mass, p_value, direction
+    Condition A (descriptive, within cluster window)
+        A_mean_auc, A_peak_auc, A_peak_time_ms
+    Condition B (descriptive, within cluster window)
+        B_mean_auc, B_peak_auc, B_peak_time_ms
+    """
+
+    rows = []
+
+    diff = curves_a - curves_b
+
+    for i, info in enumerate(results["cluster_information"], start=1):
+
+        idx = info["indices"]
+
+        # --------------------------------------------------
+        # Contrast A - B (within cluster window)
+        # --------------------------------------------------
+
+        diff_cluster = diff[:, idx]
+        diff_mean_cluster = diff_cluster.mean(axis=0)
+
+        peak_local = int(np.argmax(np.abs(diff_mean_cluster)))
+        peak_diff = float(diff_mean_cluster[peak_local])
+        peak_time = float(times[idx[peak_local]])
+
+        # --------------------------------------------------
+        # Condition A (descriptive, same window)
+        # --------------------------------------------------
+
+        a_cluster = curves_a[:, idx]
+        a_mean_auc = float(a_cluster.mean())
+        a_mean_curve = a_cluster.mean(axis=0)
+        a_peak_local = int(np.argmax(a_mean_curve))
+        a_peak_auc = float(a_mean_curve[a_peak_local])
+        a_peak_time = float(times[idx[a_peak_local]])
+
+        # --------------------------------------------------
+        # Condition B (descriptive, same window)
+        # --------------------------------------------------
+
+        b_cluster = curves_b[:, idx]
+        b_mean_auc = float(b_cluster.mean())
+        b_mean_curve = b_cluster.mean(axis=0)
+        b_peak_local = int(np.argmax(b_mean_curve))
+        b_peak_auc = float(b_mean_curve[b_peak_local])
+        b_peak_time = float(times[idx[b_peak_local]])
+
+        # --------------------------------------------------
+        # Row
+        # --------------------------------------------------
+
+        rows.append(
+            {
+                "question": question,
+                "comparison": comp_name,
+                "contrast": contrast_name,
+                "label_a": label_a,
+                "label_b": label_b,
+                "cluster_id": i,
+                "start_ms": info["start_time"] * 1000,
+                "end_ms": info["end_time"] * 1000,
+                "duration_ms": info["duration"] * 1000,
+                "peak_time_ms": peak_time * 1000,
+                "peak_diff": peak_diff,
+                "mass": info["mass"],
+                "p_value": info["p_value"],
+                "direction": info["direction"],
+                "A_mean_auc": a_mean_auc,
+                "A_peak_auc": a_peak_auc,
+                "A_peak_time_ms": a_peak_time * 1000,
+                "B_mean_auc": b_mean_auc,
+                "B_peak_auc": b_peak_auc,
+                "B_peak_time_ms": b_peak_time * 1000,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
 
 # ============================================================
 # 9. RUN ONE CONTRAST
@@ -657,7 +763,6 @@ def run_one_contrast(
     """
     raise NotImplementedError
 
-
 def run_contrast_for_comparison(
     category_comparison,
     question,
@@ -666,10 +771,17 @@ def run_contrast_for_comparison(
     subjects_root,
     group_data_dir,
     figures_dir,
+    table_dir,
 ):
     """
     Run one contrast (Q4 duration or Q5 relevance) for one
     category comparison.
+
+    Returns
+    -------
+    table : pandas.DataFrame or None
+        The cluster table for this contrast (empty if no clusters).
+        None if the data could not be loaded.
     """
 
     comp_name = category_comparison["name"]
@@ -722,7 +834,7 @@ def run_contrast_for_comparison(
         )
     except FileNotFoundError as e:
         print(f"Skipping A: {e}")
-        return
+        return None
 
     try:
         curves_b, times_b, _ = load_group_condition(
@@ -733,7 +845,7 @@ def run_contrast_for_comparison(
         )
     except FileNotFoundError as e:
         print(f"Skipping B: {e}")
-        return
+        return None
 
     if not np.allclose(times_a, times_b):
         raise ValueError(f"Times of A and B differ for {contrast_name}.")
@@ -764,9 +876,7 @@ def run_contrast_for_comparison(
     # Save NPZ
     # --------------------------------------------------------
 
-    npz_path = (
-        group_data_dir / f"{question}_{contrast_name}_cluster-signperm_paired.npz"
-    )
+    npz_path = group_data_dir / f"{question}_{contrast_name}_cluster-signperm_paired.npz"
 
     save_paired_cluster_results(
         output_path=npz_path,
@@ -798,11 +908,58 @@ def run_contrast_for_comparison(
         output_path=png_path,
     )
 
+    # --------------------------------------------------------
+    # Build cluster table for this contrast
+    # --------------------------------------------------------
+
+    table = build_cluster_table(
+        results=results,
+        curves_a=curves_a,
+        curves_b=curves_b,
+        times=times,
+        question=question,
+        contrast_name=contrast_name,
+        comp_name=comp_name,
+        label_a=label_a,
+        label_b=label_b,
+    )
+
+    # --------------------------------------------------------
+    # Save per-contrast CSV
+    # --------------------------------------------------------
+
+    csv_path = table_dir / f"{question}_{contrast_name}_cluster_table.csv"
+    table.to_csv(csv_path, index=False)
+    print(f"Cluster table saved to:\n{csv_path}")
+
+    # --------------------------------------------------------
+    # Print compact summary
+    # --------------------------------------------------------
+
+    if not table.empty:
+        print()
+        print("CLUSTER SUMMARY")
+        print("-" * 70)
+        for _, row in table.iterrows():
+            print(
+                f"  Cluster {int(row['cluster_id'])} | "
+                f"{row['start_ms']:.0f}–{row['end_ms']:.0f} ms | "
+                f"dir={row['direction']} | "
+                f"peak diff={row['peak_diff']:.3f} @ "
+                f"{row['peak_time_ms']:.0f} ms | "
+                f"mass={row['mass']:.2f} | "
+                f"p={row['p_value']:.4f}"
+            )
+    else:
+        print()
+        print("No significant clusters — table is empty.")
+
+    return table
+
 
 # ============================================================
 # 10. DISPATCHER
 # ============================================================
-
 
 def run_question(
     run_mode,
@@ -811,7 +968,11 @@ def run_question(
     subjects_root,
     group_data_dir,
     figures_dir,
+    table_dir,
 ):
+    """
+    Run all contrasts for a question, return a list of DataFrames.
+    """
 
     if run_mode == "Q4":
         contrasts = Q4_CONTRASTS
@@ -820,9 +981,11 @@ def run_question(
     else:
         raise ValueError(f"Unsupported run_mode: {run_mode}")
 
+    tables = []
+
     for comparison in selected_comparisons:
         for contrast in contrasts:
-            run_contrast_for_comparison(
+            table = run_contrast_for_comparison(
                 category_comparison=comparison,
                 question=run_mode,
                 contrast=contrast,
@@ -830,7 +993,13 @@ def run_question(
                 subjects_root=subjects_root,
                 group_data_dir=group_data_dir,
                 figures_dir=figures_dir,
+                table_dir=table_dir,
             )
+
+            if table is not None and not table.empty:
+                tables.append(table)
+
+    return tables
 
 
 # ============================================================
@@ -841,7 +1010,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     # SUBJECTS
     # --------------------------------------------------------
-
+    
     subjects = [
         "CA102",
         "CA103",
@@ -863,8 +1032,41 @@ if __name__ == "__main__":
         "CA127",
         "CA128",
         "CA131",
+        "CA132",
+        "CA134",
+        "CA136",
+        "CA138",
+        "CA139",
+        "CA140",
+        "CA142",
+        "CA144",
+        "CA145",
+        "CA146",
+        "CA147",
+        "CA148",
+        "CA150",
+        "CA151",
+        "CA152",
+        "CA154",
+        "CA158",
+        "CA160",
+        "CA163",
+        "CA166",
+        "CA167",
+        "CA169",
+        "CA170",
+        "CA172",
+        "CA173",
+        "CA174",
+        "CA176",
+        "CB001",
+        "CB002",
+        "CB003",
+        "CB006",
+        "CB008",
     ]
 
+    
     # --------------------------------------------------------
     # QUESTIONS TO RUN
     # --------------------------------------------------------
@@ -885,7 +1087,7 @@ if __name__ == "__main__":
     # list of dicts   -> ad-hoc
     # --------------------------------------------------------
 
-    COMPARISONS_TO_RUN = ["faces_vs_fonts", "faces_vs_false_fonts", "objects_vs_fonts", "objects_vs_false_fonts", "fonts_vs_false_fonts"]
+    COMPARISONS_TO_RUN = None
 
     # --------------------------------------------------------
     # PATHS
@@ -897,10 +1099,12 @@ if __name__ == "__main__":
 
     group_data_dir = out_paths_example["group_data_files"]
     figures_dir = out_paths_example["figures"]
-
+    table_dir = out_paths_example["group_tables"]
+    
     print(f"Subjects root  : {subjects_root}")
     print(f"Group data dir : {group_data_dir}")
     print(f"Figures dir    : {figures_dir}")
+    print(f"Table dir      : {table_dir}")
 
     # --------------------------------------------------------
     # RESOLVE COMPARISONS
@@ -924,7 +1128,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError(f"Invalid entry: {type(entry)}")
 
-    # --------------------------------------------------------
+       # --------------------------------------------------------
     # HEADER
     # --------------------------------------------------------
 
@@ -939,8 +1143,10 @@ if __name__ == "__main__":
     print(f"Permutations: {N_PERMUTATIONS}")
 
     # --------------------------------------------------------
-    # LOOP
+    # LOOP (acumula tabelas)
     # --------------------------------------------------------
+
+    master_tables = []
 
     for run_mode in RUN_MODES:
         print()
@@ -948,14 +1154,49 @@ if __name__ == "__main__":
         print(f"# RUN MODE: {run_mode}")
         print("#" * 70)
 
-        run_question(
+        tables = run_question(
             run_mode=run_mode,
             selected_comparisons=selected_comparisons,
             subjects=subjects,
             subjects_root=subjects_root,
             group_data_dir=group_data_dir,
             figures_dir=figures_dir,
+            table_dir=table_dir,
         )
+
+        master_tables.extend(tables)
+
+    # --------------------------------------------------------
+    # MASTER TABLE
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("BUILDING MASTER CLUSTER TABLE")
+    print("=" * 70)
+
+    if master_tables:
+        master_df = pd.concat(master_tables, ignore_index=True)
+
+        master_path = table_dir / "ALL_contrasts_cluster_table.csv"
+        master_df.to_csv(master_path, index=False)
+
+        print(f"Master table saved to:\n{master_path}")
+        print()
+        print(f"Total clusters across all contrasts: {len(master_df)}")
+        print()
+        print("Breakdown by question:")
+        print(master_df.groupby("question").size())
+        print()
+        print("Breakdown by direction (within question):")
+        print(master_df.groupby(["question", "direction"]).size())
+
+    else:
+        print("No significant clusters found in any contrast.")
+        master_df = pd.DataFrame()
+        master_path = table_dir / "ALL_contrasts_cluster_table.csv"
+        master_df.to_csv(master_path, index=False)
+        print(f"Empty master table saved to:\n{master_path}")
 
     print()
     print("=" * 70)

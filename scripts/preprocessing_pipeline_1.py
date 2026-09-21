@@ -44,7 +44,7 @@ import gc
 def run_full_pipeline_part1(
     subject,
     run_maxwell=False,
-    run_prep=False,
+    run_prep=True,
     run_artifact_annotation=True,
     run_ica=True,
     save_outputs=True,
