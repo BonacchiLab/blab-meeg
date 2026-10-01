@@ -4,9 +4,9 @@ import sys
 
 #    
 
-
-
 subjects = [
+    "CB011",
+    "CB012",
     "CB073",
     "CB074",
     "CB078",

@@ -1,89 +1,73 @@
 #%%
 import mne
 from pathlib import Path
+
 from blab_meeg.utils.paths import create_output_folders
-from blab_meeg.utils.epochs_related_functions import create_raw_epochs, create_metadata
+from blab_meeg.utils.epochs_related_functions import (
+    create_raw_epochs,
+    create_metadata,
+)
+
+
+# ============================================================
+# Method → picks / reject mapping
+# ============================================================
+
+METHOD_CONFIGS = {
+    "grad": {
+        "picks": dict(meg="grad"),
+        "reject": dict(grad=4000e-13),
+    },
+    "mag": {
+        "picks": dict(meg="mag"),
+        "reject": dict(mag=6000e-15),
+    },
+    "eeg": {
+        "picks": dict(eeg=True),
+        "reject": dict(eeg=200e-6),
+    },
+}
+
+
+def _resolve_methods(method):
+    """Devolve a lista de métodos a processar."""
+    if method == "all":
+        return ["grad", "mag", "eeg"]
+    if method not in METHOD_CONFIGS:
+        raise ValueError(
+            f"method must be one of {list(METHOD_CONFIGS) + ['all']}, "
+            f"got '{method}'"
+        )
+    return [method]
 
 
 def run_epochs_onset_creator(
     raw_concat,
     out_paths,
     subject,
+    method="grad",
     baseline=None,
     tmin=None,
     tmax=None,
     l_freq=None,
     h_freq=None,
 ):
+    """
+    Create onset-locked epochs.
 
-    report = mne.Report(title=f"{subject} - Epochs")
-
-    raw = raw_concat.copy()
-
-    epochs, events = create_raw_epochs(raw_concat, tmin, tmax)
-
-    del raw_concat
-
-    if l_freq is not None or h_freq is not None:
-        raw.filter(
-            l_freq=l_freq,
-            h_freq=h_freq,
-        )
-
-    stim_events = events[(events[:, 2] >= 1) & (events[:, 2] <= 80)]
+    Parameters
+    ----------
+    method : str
+        One of "grad", "mag", "eeg", or "all".
+        - "grad": only gradiometers (reject on grad only)
+        - "mag": only magnetometers (reject on mag only)
+        - "eeg": only EEG (reject on eeg only)
+        - "all": create the three independently
+    """
 
     # ============================================================
-    # Reject criteria — only include channel types that exist
-    # (subjects without EEG would crash otherwise)
+    # 0) Phase labels
     # ============================================================
-
-    reject_criteria = dict(
-        mag=6000e-15,
-        grad=4000e-13,
-    )
-
-    available_types = set(raw.get_channel_types())
-
-    if "eeg" in available_types:
-        reject_criteria["eeg"] = 200e-6
-
-    epochs_clean = mne.Epochs(
-        raw,
-        stim_events,
-        tmin=tmin,
-        tmax=tmax,
-        reject_by_annotation=True,
-        baseline=baseline,
-        reject=reject_criteria,
-        preload=True,
-    )
-    epochs_clean.drop_bad()
-
-    del raw
-
-    # ========================#
-    # =======Data Report======#
-    # ========================#
-
-    fig_drop = epochs_clean.plot_drop_log(show=False)
-
-    report.add_figure(fig_drop, title="Drop log")
-
-    fig_evoked_raw = epochs.average().plot(show=False)
-    fig_evoked_annotations = epochs_clean.average().plot(show=False)
-
-    report.add_figure(fig_evoked_raw, title="Evoked Raw")
-    report.add_figure(fig_evoked_annotations, title="Evoked after cleaning")
-
-    # =========================
-    # 5) METADATA 🔥
-    # =========================
-    epochs_clean = create_metadata(epochs_clean, events, subject=subject)
-    epochs_clean.metadata.head()
-
-    # =========================
-    # 10) SAVE DATA
-    # =========================
 
     if tmin == -0.1 and tmax == 0.5:
         phase = "Phase1"
@@ -96,45 +80,147 @@ def run_epochs_onset_creator(
             f"Time combination tmin={tmin} and tmax={tmax} not recognized."
         )
 
-    channel_types = {
-        "mag": dict(meg="mag"),
-        "grad": dict(meg="grad"),
-        "eeg": dict(eeg=True),
-    }
+    # ============================================================
+    # 1) Prepare raw + events
+    # ============================================================
 
-    for name, picks in channel_types.items():
+    raw = raw_concat.copy()
 
-        # Skip channel types that do not exist in this subject
-        if name not in available_types:
-            print(f"[INFO] Skipping '{name}': no channels of this type.")
+    _, events = create_raw_epochs(raw_concat, tmin, tmax)
+
+    del raw_concat
+
+    if l_freq is not None or h_freq is not None:
+        raw.filter(l_freq=l_freq, h_freq=h_freq)
+
+    stim_events = events[(events[:, 2] >= 1) & (events[:, 2] <= 80)]
+
+    available_types = set(raw.get_channel_types())
+
+    # ============================================================
+    # 2) Loop over the requested methods
+    # ============================================================
+
+    methods_to_run = _resolve_methods(method)
+    results = {}
+
+    for m in methods_to_run:
+
+        cfg = METHOD_CONFIGS[m]
+
+        # Skip if this channel type does not exist in this subject.
+        # Nota: em MNE recente, get_channel_types() pode devolver
+        # "grad" e "mag" em vez de "meg", por isso verificamos o tipo
+        # específico que o método precisa.
+
+        # Mapear o método para os tipos que satisfazem o pedido
+        method_type_map = {
+            "grad": {"grad", "meg"},   # aceitar ambos por compatibilidade
+            "mag":  {"mag",  "meg"},
+            "eeg":  {"eeg"},
+        }
+
+        if not (method_type_map[m] & available_types):
+            print(
+                f"[INFO] Skipping '{m}': no channels of type "
+                f"{sorted(method_type_map[m])} in {subject}. "
+                f"Available: {sorted(available_types)}"
+            )
             continue
 
-        epochs_pick = epochs_clean.copy().pick_types(**picks)
+        print(f"\n===== Creating epochs for method: {m} =====")
 
-        epochs_pick.save(
+        # Converter o dict do METHOD_CONFIGS para lista de índices
+        picks_idx = mne.pick_types(
+            raw.info,
+            **cfg["picks"],
+        )
+
+        if len(picks_idx) == 0:
+            print(f"[INFO] Skipping '{m}': no channels for picks={cfg['picks']}.")
+            continue
+
+        epochs_clean = mne.Epochs(
+            raw,
+            stim_events,
+            tmin=tmin,
+            tmax=tmax,
+            reject_by_annotation=True,
+            baseline=baseline,
+            reject=cfg["reject"],
+            picks=picks_idx,
+            preload=True,
+        )
+        epochs_clean.drop_bad()
+
+        # --------------------------------------------------------
+        # Metadata
+        # --------------------------------------------------------
+        # Pass epochs_clean.events (aligned with the surviving trials)
+        epochs_clean = create_metadata(
+            epochs_clean,
+            events,
+            subject=subject,
+        )
+
+        # --------------------------------------------------------
+        # Save .fif
+        # --------------------------------------------------------
+        save_path = (
             out_paths["epochs"]
             / phase_folder
-            / f"{subject}_04_epochs_{name}_{phase}_epo.fif",
-            overwrite=True,
+            / f"{subject}_04_epochs_{m}_{phase}_epo.fif"
         )
-        del epochs_pick
+        epochs_clean.save(save_path, overwrite=True)
+        print(f"Saved: {save_path}")
 
-    report.save(
-        out_paths["docs_epochs"] / f"04_epochs_report_{phase}.html",
-        overwrite=True, open_browser=False,
-    )
-    epochs_clean.metadata.to_csv(
-        out_paths["docs_epochs"] / f"metadata_{phase}.csv",
-        index=False,
-    )
+        # --------------------------------------------------------
+        # Save metadata csv
+        # --------------------------------------------------------
+        epochs_clean.metadata.to_csv(
+            out_paths["docs_epochs"]
+            / f"metadata_{phase}_{m}.csv",
+            index=False,
+        )
 
-    return epochs_clean
+        # --------------------------------------------------------
+        # Report
+        # --------------------------------------------------------
+        report = mne.Report(title=f"{subject} - {m} - {phase}")
+
+        fig_drop = epochs_clean.plot_drop_log(show=False)
+        report.add_figure(fig_drop, title=f"Drop log ({m})")
+
+        fig_evoked = epochs_clean.average().plot(show=False)
+        report.add_figure(fig_evoked, title=f"Evoked after cleaning ({m})")
+
+        report.save(
+            out_paths["docs_epochs"]
+            / f"04_epochs_report_{m}_{phase}.html",
+            overwrite=True,
+            open_browser=False,
+        )
+
+        results[m] = epochs_clean
+
+    del raw
+
+    # ============================================================
+    # 3) Return
+    # ============================================================
+    # Se só correu um método, devolve esse.
+    # Se correu "all", devolve o dicionário.
+
+    if len(results) == 1:
+        return next(iter(results.values()))
+
+    return results
 
 
 def run_epoch_offset_creator(
     out_paths,
     subject,
-    method,
+    method="grad",
     crop=True,
 ):
     """
@@ -159,11 +245,23 @@ def run_epoch_offset_creator(
         Participant ID.
 
     method : str
-        Channel type: "mag", "grad", or "eeg".
+        Channel type: "grad", "mag", or "eeg".
+        Only one at a time (offset epochs are derived from onset
+        epochs of the same method).
 
     crop : bool
         Whether to crop the shifted epochs to -100 ms to +500 ms.
     """
+
+    # ============================================================
+    # 0) Validate method
+    # ============================================================
+
+    if method not in METHOD_CONFIGS:
+        raise ValueError(
+            f"method must be one of {list(METHOD_CONFIGS)}, "
+            f"got '{method}'"
+        )
 
     # ============================================================
     # 1) Load Phase 2 onset epochs
@@ -209,13 +307,8 @@ def run_epoch_offset_creator(
     # 4) Baseline correction
     # ============================================================
     #
-    # The baseline corresponds to the 200 ms immediately
-    # preceding stimulus offset.
-    #
-    # After shifting, these all correspond to:
-    #
-    #   -0.2 to 0 s
-    #
+    # Baseline = 200 ms immediately preceding stimulus offset.
+    # After shifting, all correspond to (-0.2, 0).
     # ============================================================
 
     for ep in (epochs_500, epochs_1000, epochs_1500):
@@ -249,10 +342,7 @@ def run_epoch_offset_creator(
         / "Phase3_offset_-100_500ms"
     )
 
-    phase3_folder.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    phase3_folder.mkdir(parents=True, exist_ok=True)
 
     for name, ep in offset_epochs.items():
 
@@ -283,10 +373,20 @@ if __name__ == "__main__":
         preload=True,
     )
 
+    # ------------------------------------------------------------
+    # Escolhe o método aqui:
+    #   "grad"  → só gradiómetros (o teu caso)
+    #   "mag"   → só magnetómetros
+    #   "eeg"   → só EEG
+    #   "all"   → os três em separado
+    # ------------------------------------------------------------
+    METHOD = "grad"
+
     run_epochs_onset_creator(
         raw_concat=raw_concat,
         out_paths=out_paths,
         subject=subject,
+        method=METHOD,
         baseline=(-0.1, 0),
         tmin=-0.1,
         tmax=0.5,
@@ -294,3 +394,10 @@ if __name__ == "__main__":
         h_freq=35.0,
     )
 
+    # Exemplo para offset epochs (depois de teres a Phase2 feita):
+    # run_epoch_offset_creator(
+    #     out_paths=out_paths,
+    #     subject=subject,
+    #     method=METHOD,
+    #     crop=True,
+    # )

@@ -26,14 +26,15 @@ from blab_meeg.preprocessing.step04_epochs_remake import (
     run_epochs_onset_creator,
     run_epoch_offset_creator,
 )
-
+  
 
 # %%
 # 2) Full preprocessing part 2
 # %%
 def run_full_pipeline_part2(
     subject,
-    run_ica=True,
+    method="grad",
+    run_ica=False,
     run_phase1=True,
     run_phase2=True,
     run_phase3=True,
@@ -71,74 +72,62 @@ def run_full_pipeline_part2(
         subject=subject,
         inroot=inroot_dir,
     )
-
     # ============================================================
-    # 2.3) Find raw runs
+    # 2.3) Paths
     # ============================================================
 
-    raw_files = sorted(
-        sub_dur_indir.glob("*DurR*.fif")
+    concat_clean_path = (
+        out_paths["03_ica"]
+        / f"{subject}_03_ica_concat_raw.fif"
     )
 
-    if len(raw_files) == 0:
-        raise FileNotFoundError(
-            f"No raw FIF files found for {subject}."
-        )
-
-    names = [
-        f"dur{i + 1}"
-        for i in range(len(raw_files))
-    ]
-
-    print("\n" + "=" * 60)
-    print(f"Subject: {subject}")
-    print("=" * 60)
-    print(f"Runs found: {len(raw_files)}")
-
 
     # ============================================================
-    # 2.4) Load artifact-annotated runs
+    # 2.4) Apply ICA (opcional — só se run_ica=True)
     # ============================================================
-
-    annot_files = [
-        out_paths["02_artifact_annotations"]
-        / f"{subject}_02_artifact_annotations_{name}_raw.fif"
-        for name in names
-    ]
-
-    missing_annotations = [
-        path
-        for path in annot_files
-        if not path.exists()
-    ]
-
-    if missing_annotations:
-
-        raise FileNotFoundError(
-            "Missing artifact annotation files:\n"
-            + "\n".join(
-                str(path)
-                for path in missing_annotations
-            )
-        )
-
-    raws_annotated = [
-        mne.io.read_raw_fif(
-            path,
-            preload=True,
-        )
-        for path in annot_files
-    ]
-
-    print(
-        f"Loaded {len(raws_annotated)} "
-        "artifact-annotated runs."
-    )
-    # ============================================================
-    # 2.5) Apply ICA
+    #
+    # Se run_ica=False, assumimos que o concat já existe e já tem
+    # as anotações + ICA aplicadas. Não tocamos nas anotações.
+    #
+    # Se run_ica=True, precisamos dos ficheiros de anotação da parte 1
+    # como input para a ICA.
     # ============================================================
 
     if run_ica:
+
+        annot_dir = out_paths["02_artifact_annotations"]
+
+        annot_files = sorted(
+            annot_dir.glob(
+                f"{subject}_02_artifact_annotations_dur*_raw.fif"
+            )
+        )
+
+        if len(annot_files) == 0:
+            raise FileNotFoundError(
+                f"No artifact annotation files found for {subject} in "
+                f"{annot_dir}. Either run preprocessing_pipeline_1.py "
+                f"first, or call run_full_pipeline_part2(..., run_ica=False) "
+                f"if the ICA-concatenated raw already exists."
+            )
+
+        names = [
+            path.stem.split("_")[-2]
+            for path in annot_files
+        ]
+
+        print("\n" + "=" * 60)
+        print(f"Subject: {subject}")
+        print("=" * 60)
+        print(f"Runs found (from annotations): {len(annot_files)}")
+        print(f"Names: {names}")
+
+        raws_annotated = [
+            mne.io.read_raw_fif(path, preload=True)
+            for path in annot_files
+        ]
+
+        print(f"Loaded {len(raws_annotated)} artifact-annotated runs.")
 
         print("\n===== Apply ICA =====")
 
@@ -151,15 +140,43 @@ def run_full_pipeline_part2(
 
         print("✔ ICA application complete.")
 
-    # Close annotated data
+        for raw in raws_annotated:
+            raw.close()
 
-    for raw in raws_annotated:
-        raw.close()
+        del raws_annotated
 
-    del raws_annotated
+        gc.collect()
 
-    gc.collect()
+    else:
+        print(
+            f"[INFO] run_ica=False — skipping annotation loading and ICA.\n"
+            f"       Expecting ICA-concatenated raw at:\n"
+            f"       {concat_clean_path}"
+        )
 
+
+    # ============================================================
+    # 2.5) Load ICA-cleaned concatenated raw
+    # ============================================================
+
+    if not concat_clean_path.exists():
+        raise FileNotFoundError(
+            f"ICA-cleaned concatenated file not found:\n"
+            f"{concat_clean_path}\n"
+            f"Either run with run_ica=True (requires annotations from "
+            f"part 1), or make sure the file exists."
+        )
+
+    raw_concat = mne.io.read_raw_fif(
+        concat_clean_path,
+        preload=True,
+    )
+
+    print(
+        f"Loaded ICA-cleaned data:\n"
+        f"{concat_clean_path}"
+    )
+    """
     # ============================================================
     # 2.6) Load ICA-cleaned concatenated raw
     # ============================================================
@@ -185,7 +202,7 @@ def run_full_pipeline_part2(
         f"Loaded ICA-cleaned data:\n"
         f"{concat_clean_path}"
     )
-
+    """
     # ============================================================
     # 2.7) PHASE 1
     # Onset: -100 → +500 ms
@@ -201,6 +218,7 @@ def run_full_pipeline_part2(
             raw_concat=raw_concat,
             out_paths=out_paths,
             subject=subject,
+            method=method,          # <-- NOVO
 
             baseline=(-0.1, 0),
 
@@ -228,6 +246,7 @@ def run_full_pipeline_part2(
             raw_concat=raw_concat,
             out_paths=out_paths,
             subject=subject,
+            method=method,          # <-- NOVO
 
             baseline=(-0.2, 0),
 
@@ -251,22 +270,14 @@ def run_full_pipeline_part2(
         print("PHASE 3 — OFFSET -100 to +500 ms")
         print("=" * 60)
 
-        for method in (
-            "mag",
-            "grad",
-            "eeg",
-        ):
+        print(f"\n--- Creating offset epochs: {method} ---")
 
-            print(
-                f"\n--- Creating offset epochs: {method} ---"
-            )
-
-            run_epoch_offset_creator(
-                out_paths=out_paths,
-                subject=subject,
-                method=method,
-                crop=True,
-            )
+        run_epoch_offset_creator(
+            out_paths=out_paths,
+            subject=subject,
+            method=method,
+            crop=True,
+        )
 
         print("✔ Phase 3 complete.")
 
@@ -319,18 +330,3 @@ if __name__ == "__main__":
         subject=args.subject,
     )
 # %%
-
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--subject",
-        required=True,
-    )
-
-    args = parser.parse_args()
-
-    run_full_pipeline_part2(
-        subject=args.subject,
-    )

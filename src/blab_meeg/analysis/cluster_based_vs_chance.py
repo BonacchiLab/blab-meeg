@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from scipy.stats import t
 
@@ -31,6 +32,12 @@ RANDOM_STATE = 19
 #   "group"      -> stack mean_scores across subjects
 #   "individual" -> use repetition_scores per subject
 LEVEL = "group"
+
+# When True, for questions with duration-specific analyses (Q2, Q4),
+# crop the time axis to [0, duration_ms] before running the cluster
+# test. This restricts the test to the period during which the
+# stimulus was physically visible.
+CROP_TO_STIMULUS_WINDOW = True
 
 
 # ============================================================
@@ -110,11 +117,16 @@ CUSTOM_ANALYSES = [
 def build_analyses_for_question(run_mode, comparisons):
     """
     Return the list of cluster analyses for a given question.
+
+    Q1, Q3 : one analysis per comparison (no duration split)
+    Q2, Q4 : one analysis per comparison per duration
+    Q5     : one analysis per comparison per relevance level
+    CUSTOM : use CUSTOM_ANALYSES
     """
 
     analyses = []
 
-    if run_mode in {"Q1", "Q2", "Q3"}:
+    if run_mode in {"Q1", "Q3"}:
         for c in comparisons:
             analyses.append(
                 {
@@ -124,14 +136,14 @@ def build_analyses_for_question(run_mode, comparisons):
                 }
             )
 
-    elif run_mode == "Q4":
+    elif run_mode in {"Q2", "Q4"}:
         for c in comparisons:
             for d in DURATIONS:
                 analysis_name = f"{c['name']}_duration_{d}ms"
                 analyses.append(
                     {
-                        "name": f"Q4_{analysis_name}",
-                        "question": "Q4",
+                        "name": f"{run_mode}_{analysis_name}",
+                        "question": run_mode,
                         "analysis_name": analysis_name,
                     }
                 )
@@ -257,7 +269,65 @@ def load_group_curves(subjects, subjects_root, question, analysis_name):
 
 
 # ============================================================
-# 6. CLUSTER HELPERS
+# 6. CROP TO STIMULUS WINDOW (for duration-specific analyses)
+# ============================================================
+
+
+def get_duration_from_analysis_name(analysis_name):
+    """
+    Extract the duration in ms from an analysis name like
+    'faces_vs_objects_duration_1000ms'.
+
+    Returns None if the analysis name does not contain a duration.
+    """
+
+    if "_duration_" not in analysis_name:
+        return None
+
+    tail = analysis_name.split("_duration_")[-1]
+
+    if not tail.endswith("ms"):
+        return None
+
+    try:
+        return int(tail.replace("ms", ""))
+    except ValueError:
+        return None
+
+
+def crop_to_stimulus_window(curves, times, analysis_name):
+    """
+    If the analysis name contains a duration, restrict the time axis
+    and curves to [0, duration_ms].
+
+    Returns cropped (curves, times). If no duration is present or
+    CROP_TO_STIMULUS_WINDOW is False, returns the inputs unchanged.
+    """
+
+    if not CROP_TO_STIMULUS_WINDOW:
+        return curves, times
+
+    duration_ms = get_duration_from_analysis_name(analysis_name)
+
+    if duration_ms is None:
+        return curves, times
+
+    t_max = duration_ms / 1000.0  # seconds
+
+    mask = (times >= 0.0) & (times <= t_max)
+
+    if not np.any(mask):
+        raise ValueError(
+            f"Crop to stimulus window produced empty mask for "
+            f"{analysis_name} (t_max = {t_max} s, "
+            f"times range = [{times.min()}, {times.max()}])."
+        )
+
+    return curves[:, mask], times[mask]
+
+
+# ============================================================
+# 7. CLUSTER HELPERS
 # ============================================================
 
 
@@ -289,7 +359,7 @@ def compute_cluster_masses(statistic, clusters):
 
 
 # ============================================================
-# 7. CLUSTER-BASED SIGN PERMUTATION TEST (one-tailed)
+# 8. CLUSTER-BASED SIGN PERMUTATION TEST (one-tailed)
 # ============================================================
 
 
@@ -515,7 +585,7 @@ def cluster_sign_permutation_test(
 
 
 # ============================================================
-# 8. PLOT
+# 9. PLOT
 # ============================================================
 
 
@@ -647,7 +717,7 @@ def plot_cluster_results(
 
 
 # ============================================================
-# 9. SAVE RESULTS
+# 10. SAVE RESULTS
 # ============================================================
 
 
@@ -689,7 +759,55 @@ def save_cluster_results(
 
 
 # ============================================================
-# 10. RUN GROUP CLUSTER TEST
+# 11. BUILD CLUSTER TABLE
+# ============================================================
+
+
+def build_cluster_table(
+    results,
+    curves,
+    times,
+    question,
+    analysis_name,
+    level,
+    subject=None,
+):
+    """
+    Build a pandas DataFrame with one row per significant cluster.
+    """
+
+    rows = []
+
+    for i, info in enumerate(results["cluster_information"], start=1):
+
+        idx = info["indices"]
+
+        cluster_curves = curves[:, idx]
+        mean_auc = float(cluster_curves.mean())
+
+        rows.append(
+            {
+                "question": question,
+                "analysis_name": analysis_name,
+                "level": level,
+                "subject": subject if subject is not None else "",
+                "cluster_id": i,
+                "start_ms": info["start_time"] * 1000,
+                "end_ms": info["end_time"] * 1000,
+                "duration_ms": info["duration"] * 1000,
+                "peak_time_ms": info["peak_time"] * 1000,
+                "peak_auc": info["peak_score"],
+                "mass": info["mass"],
+                "p_value": info["p_value"],
+                "mean_auc": mean_auc,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# 12. RUN GROUP CLUSTER TEST
 # ============================================================
 
 
@@ -699,6 +817,7 @@ def run_group_cluster_test(
     subjects_root,
     group_data_dir,
     figures_dir,
+    table_dir,
 ):
 
     name = analysis["name"]
@@ -719,10 +838,27 @@ def run_group_cluster_test(
         )
     except FileNotFoundError as e:
         print(f"Skipping {name}: {e}")
-        return
+        return None
 
     print(f"Subjects loaded: {curves.shape[0]}")
-    print(f"Shape: {curves.shape}")
+    print(f"Shape (full): {curves.shape}")
+
+    # --------------------------------------------------------
+    # Optional crop to stimulus window (only for duration-specific
+    # analyses, i.e. Q2 and Q4)
+    # --------------------------------------------------------
+
+    curves, times = crop_to_stimulus_window(
+        curves=curves,
+        times=times,
+        analysis_name=analysis_name,
+    )
+
+    print(f"Shape (after crop): {curves.shape}")
+    print(
+        f"Time window: {times[0] * 1000:.1f} to "
+        f"{times[-1] * 1000:.1f} ms"
+    )
 
     results = cluster_sign_permutation_test(
         curves=curves,
@@ -758,9 +894,46 @@ def run_group_cluster_test(
         output_path=png_path,
     )
 
+    # --------------------------------------------------------
+    # Build cluster table
+    # --------------------------------------------------------
+
+    table = build_cluster_table(
+        results=results,
+        curves=curves,
+        times=times,
+        question=question,
+        analysis_name=analysis_name,
+        level="group",
+    )
+
+    csv_path = table_dir / f"{name}_cluster_table.csv"
+    table.to_csv(csv_path, index=False)
+    print(f"Cluster table saved to:\n{csv_path}")
+
+    if not table.empty:
+        print()
+        print("CLUSTER SUMMARY")
+        print("-" * 70)
+        for _, row in table.iterrows():
+            print(
+                f"  Cluster {int(row['cluster_id'])} | "
+                f"{row['start_ms']:.0f}–{row['end_ms']:.0f} ms | "
+                f"peak={row['peak_auc']:.3f} @ "
+                f"{row['peak_time_ms']:.0f} ms | "
+                f"mean={row['mean_auc']:.3f} | "
+                f"mass={row['mass']:.2f} | "
+                f"p={row['p_value']:.4f}"
+            )
+    else:
+        print()
+        print("No significant clusters — table is empty.")
+
+    return table
+
 
 # ============================================================
-# 11. RUN INDIVIDUAL CLUSTER TEST
+# 13. RUN INDIVIDUAL CLUSTER TEST
 # ============================================================
 
 
@@ -770,6 +943,7 @@ def run_individual_cluster_test(
     subjects_root,
     group_data_dir,
     figures_dir,
+    table_dir,
 ):
 
     name = analysis["name"]
@@ -786,6 +960,11 @@ def run_individual_cluster_test(
 
     individual_figures_dir = figures_dir / "Individual"
     individual_figures_dir.mkdir(parents=True, exist_ok=True)
+
+    individual_tables_dir = table_dir / "Individual"
+    individual_tables_dir.mkdir(parents=True, exist_ok=True)
+
+    tables = []
 
     for subject in subjects:
         print()
@@ -812,7 +991,19 @@ def run_individual_cluster_test(
             )
             continue
 
-        print(f"Shape: {curves.shape}")
+        print(f"Shape (full): {curves.shape}")
+
+        # ----------------------------------------------------
+        # Optional crop to stimulus window
+        # ----------------------------------------------------
+
+        curves, times = crop_to_stimulus_window(
+            curves=curves,
+            times=times,
+            analysis_name=analysis_name,
+        )
+
+        print(f"Shape (after crop): {curves.shape}")
 
         results = cluster_sign_permutation_test(
             curves=curves,
@@ -849,9 +1040,32 @@ def run_individual_cluster_test(
             output_path=png_path,
         )
 
+        # ----------------------------------------------------
+        # Build cluster table
+        # ----------------------------------------------------
+
+        table = build_cluster_table(
+            results=results,
+            curves=curves,
+            times=times,
+            question=question,
+            analysis_name=analysis_name,
+            level="individual",
+            subject=subject,
+        )
+
+        csv_path = individual_tables_dir / f"{name}_{subject}_cluster_table.csv"
+        table.to_csv(csv_path, index=False)
+        print(f"Cluster table saved to:\n{csv_path}")
+
+        if not table.empty:
+            tables.append(table)
+
+    return tables
+
 
 # ============================================================
-# 12. DISPATCHER
+# 14. DISPATCHER
 # ============================================================
 
 
@@ -861,30 +1075,41 @@ def run_one_analysis(
     subjects_root,
     group_data_dir,
     figures_dir,
+    table_dir,
 ):
+    """
+    Run one analysis and return a DataFrame (group) or list of
+    DataFrames (individual).
+    """
 
     if LEVEL == "group":
-        run_group_cluster_test(
+        table = run_group_cluster_test(
             analysis=analysis,
             subjects=subjects,
             subjects_root=subjects_root,
             group_data_dir=group_data_dir,
             figures_dir=figures_dir,
+            table_dir=table_dir,
         )
+        return table
+
     elif LEVEL == "individual":
-        run_individual_cluster_test(
+        tables = run_individual_cluster_test(
             analysis=analysis,
             subjects=subjects,
             subjects_root=subjects_root,
             group_data_dir=group_data_dir,
             figures_dir=figures_dir,
+            table_dir=table_dir,
         )
+        return tables
+
     else:
         raise ValueError(f"Unknown LEVEL: {LEVEL}")
 
 
 # ============================================================
-# 13. MAIN
+# 15. MAIN
 # ============================================================
 
 if __name__ == "__main__":
@@ -906,6 +1131,7 @@ if __name__ == "__main__":
         "CA114",
         "CA116",
         "CA118",
+        "CA121",
         "CA123",
         "CA124",
         "CA125",
@@ -913,43 +1139,121 @@ if __name__ == "__main__":
         "CA127",
         "CA128",
         "CA131",
-    ]
+        "CA132",
+        "CA133",
+        "CA134",
+        "CA136",
+        "CA138",
+        "CA139",
+        "CA140",
+        "CA142",
+        "CA144",
+        "CA145",
+        "CA146",
+        "CA147",
+        "CA148",
+        "CA150",
+        "CA151",
+        "CA152",
+        "CA154",
+        "CA158",
+        "CA160",
+        "CA163",
+        "CA166",
+        "CA167",
+        "CA169",
+        "CA170",
+        "CA172",
+        "CA173",
+        "CA174",
+        "CA176",
+        "CB001",
+        "CB002",
+        "CB003",
+        "CB006",
+        "CB008",
+        "CB011",
+        "CB012",
+        "CB013",
+        "CB015",
+        "CB016",
+        "CB019",
+        "CB020",
+        "CB022",
+        "CB023",
+        "CB024",
+        "CB027",
+        "CB028",
+        "CB029",
+        "CB030",
+        "CB031",
+        "CB035",
+        "CB036",
+        "CB038",
+        "CB039",
+        "CB040",
+        "CB041",
+        "CB042",
+        "CB044",
+        "CB045",
+        "CB049",
+        "CB051",
+        "CB056",
+        "CB060",
+        "CB061",
+        "CB063",
+        "CB065",
+        "CB069",
+        "CB071",
+        "CB072",
+        "CB073",
+        "CB074",
+        "CB078",
+        "CB081",
+        "CB084",
+        "CB085",
+        "CB999", 
+        ]
+
+
+    """
+        "CB073",
+        "CB074",
+        "CB078",
+        "CB081",
+        "CB084",
+        "CB085",
+        "CB999",   
+    """
 
     # --------------------------------------------------------
     # QUESTIONS TO RUN
     # --------------------------------------------------------
 
-    RUN_MODES = ["Q4", "Q5"]
+    RUN_MODES = ["Q1", "Q2", "Q3", "Q4", "Q5"]
 
     # --------------------------------------------------------
     # COMPARISONS TO RUN
     # --------------------------------------------------------
 
-    COMPARISONS_TO_RUN = ["faces_vs_objects"]
+    COMPARISONS_TO_RUN = None
 
     # --------------------------------------------------------
     # PATHS
     # --------------------------------------------------------
 
-    # Create the output tree using one subject as example.
-    # This also gives us access to the cohort-level folders.
     out_paths_example = create_output_folders(subject=subjects[0])
-
-    # decoding_example points to:
-    #   .../COG_MEEG_EXP1_RELEASE_OUTPUT/CA124/Docs/Analysis/Decoding
     decoding_example = out_paths_example["decoding"]
-
-    # subjects_root points to:
-    #   .../COG_MEEG_EXP1_RELEASE_OUTPUT
     subjects_root = decoding_example.parents[3]
 
-    # Group-level output folders
     group_data_dir = out_paths_example["group_data_files"]
     figures_dir = out_paths_example["figures"]
+    table_dir = out_paths_example["group_tables"]
 
     print(f"Subjects root  : {subjects_root}")
     print(f"Group data dir : {group_data_dir}")
     print(f"Figures dir    : {figures_dir}")
+    print(f"Table dir      : {table_dir}")
 
     # --------------------------------------------------------
     # RESOLVE COMPARISONS
@@ -983,14 +1287,17 @@ if __name__ == "__main__":
     print("=" * 70)
     print(f"Level: {LEVEL}")
     print("H1: AUC > chance")
+    print(f"Crop to stimulus window: {CROP_TO_STIMULUS_WINDOW}")
     print(f"Subjects: {subjects}")
     print(f"Run modes: {RUN_MODES}")
     print(f"Comparisons: {len(selected_comparisons)}")
     print(f"Permutations: {N_PERMUTATIONS}")
 
     # --------------------------------------------------------
-    # LOOP
+    # LOOP (accumulate tables)
     # --------------------------------------------------------
+
+    master_tables = []
 
     for run_mode in RUN_MODES:
         print()
@@ -1006,16 +1313,57 @@ if __name__ == "__main__":
         print(f"Number of analyses: {len(analyses)}")
 
         for analysis in analyses:
-            run_one_analysis(
+
+            result = run_one_analysis(
                 analysis=analysis,
                 subjects=subjects,
                 subjects_root=subjects_root,
                 group_data_dir=group_data_dir,
                 figures_dir=figures_dir,
+                table_dir=table_dir,
             )
+
+            if LEVEL == "group":
+                if result is not None and not result.empty:
+                    master_tables.append(result)
+
+            elif LEVEL == "individual":
+                if result is not None:
+                    for t in result:
+                        if not t.empty:
+                            master_tables.append(t)
+
+    # --------------------------------------------------------
+    # MASTER TABLE
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print("BUILDING MASTER CLUSTER TABLE")
+    print("=" * 70)
+
+    if master_tables:
+        master_df = pd.concat(master_tables, ignore_index=True)
+
+        master_path = table_dir / "ALL_clusters_vs_chance_table.csv"
+        master_df.to_csv(master_path, index=False)
+
+        print(f"Master table saved to:\n{master_path}")
+        print()
+        print(f"Total clusters: {len(master_df)}")
+        print()
+        print("Breakdown by question:")
+        print(master_df.groupby("question").size())
+    else:
+        print("No significant clusters found.")
+        master_df = pd.DataFrame()
+        master_path = table_dir / "ALL_clusters_vs_chance_table.csv"
+        master_df.to_csv(master_path, index=False)
+        print(f"Empty master table saved to:\n{master_path}")
 
     print()
     print("=" * 70)
     print("All cluster analyses completed")
     print("=" * 70)
+# %%
 # %%

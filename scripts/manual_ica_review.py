@@ -127,7 +127,7 @@ matplotlib.use("QtAgg")
 from pathlib import Path
 
 # select subject
-subject = "CB084"
+subject = "CB999"
 
 # *#*#*#*#*#*#*#*#*#*#*#*#
 # 2) Load training data  #

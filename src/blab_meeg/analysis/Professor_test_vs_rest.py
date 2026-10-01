@@ -1,5 +1,3 @@
-# faz cluster based vs chance de cada categoria_vs_rest estando elas agrupadas
-
 # %%
 # ============================================================
 # Cluster-based summary figure (group-level, vs chance)
@@ -24,14 +22,7 @@ from utils.paths import create_output_folders
 # 1. USER SETTINGS
 # ============================================================
 
-SUBJECTS = [
-    "CA124",
-    "CA140",
-    "CB072",
-    "CB013",
-]
-
-N_PERMUTATIONS = 10000
+N_PERMUTATIONS = 50000
 CLUSTER_FORMING_ALPHA = 0.05
 CLUSTER_ALPHA = 0.05
 RANDOM_STATE = 19
@@ -48,10 +39,10 @@ CATEGORIES_VS_REST = [
 ]
 
 CATEGORY_COLORS = {
-    "faces_vs_rest": "#2ca02c",  # green
-    "objects_vs_rest": "#1f77b4",  # blue
-    "fonts_vs_rest": "#d62728",  # red
-    "false_fonts_vs_rest": "#ff7f0e",  # orange
+    "faces_vs_rest": "#2ca02c",       # green
+    "objects_vs_rest": "#1f77b4",     # blue
+    "fonts_vs_rest": "#d62728",       # red
+    "false_fonts_vs_rest": "#ff7f0e", # orange
 }
 
 CATEGORY_SHORT = {
@@ -76,7 +67,12 @@ def build_filename(subject, question, analysis_name):
 
 def get_subject_decoding_folder(subjects_root, subject):
     return (
-        Path(subjects_root) / subject / "Docs" / "Analysis" / "Decoding" / "Data_Files"
+        Path(subjects_root)
+        / subject
+        / "Docs"
+        / "Analysis"
+        / "Decoding"
+        / "Data_Files"
     )
 
 
@@ -151,7 +147,7 @@ def cluster_sign_permutation_test(
     chance=0.5,
     cluster_forming_alpha=0.05,
     cluster_alpha=0.05,
-    n_permutations=10000,
+    n_permutations=50000,
     random_state=19,
     verbose=False,
 ):
@@ -164,7 +160,9 @@ def cluster_sign_permutation_test(
     with np.errstate(divide="ignore", invalid="ignore"):
         observed_t = mean_d / (std_d / np.sqrt(n_units))
 
-    observed_t = np.nan_to_num(observed_t, nan=0.0, posinf=0.0, neginf=0.0)
+    observed_t = np.nan_to_num(
+        observed_t, nan=0.0, posinf=0.0, neginf=0.0
+    )
 
     df = n_units - 1
     threshold = t.ppf(1 - cluster_forming_alpha, df)
@@ -185,14 +183,18 @@ def cluster_sign_permutation_test(
         with np.errstate(divide="ignore", invalid="ignore"):
             perm_t = perm_mean / (perm_std / np.sqrt(n_units))
 
-        perm_t = np.nan_to_num(perm_t, nan=0.0, posinf=0.0, neginf=0.0)
+        perm_t = np.nan_to_num(
+            perm_t, nan=0.0, posinf=0.0, neginf=0.0
+        )
 
         perm_clusters = find_clusters(perm_t > threshold)
 
         if not perm_clusters:
             null_max_masses[perm] = 0.0
         else:
-            null_max_masses[perm] = max(compute_cluster_masses(perm_t, perm_clusters))
+            null_max_masses[perm] = max(
+                compute_cluster_masses(perm_t, perm_clusters)
+            )
 
     cluster_p_values = [
         (float((null_max_masses >= m).sum()) + 1) / (n_permutations + 1)
@@ -336,7 +338,6 @@ def make_summary_figure(
         linestyle="--",
         color="black",
         linewidth=1,
-        label=f"Chance ({chance:.2f})",
         zorder=1,
     )
     ax.axvline(0, linestyle=":", color="gray", linewidth=1, zorder=1)
@@ -345,8 +346,37 @@ def make_summary_figure(
     ax.set_ylabel("AUC")
     ax.set_title(title)
     ax.grid(alpha=0.15)
-    ax.set_ylim(0.35, 0.85)
+    # --------------------------------------------------------
+    # Adaptive Y-limits
+    # --------------------------------------------------------
 
+    all_means = np.concatenate([curves.mean(axis=0) for curves in curves_dict.values()])
+    all_bands = np.concatenate([compute_error_band(curves, mode=error_band_mode)[0] for curves in curves_dict.values()])
+
+    y_min_data = float(np.min(all_means - all_bands))
+    y_max_data = float(np.max(all_means + all_bands))
+
+    # Make sure chance is included
+    y_min_data = min(y_min_data, chance)
+    y_max_data = max(y_max_data, chance)
+
+    # Add a small padding
+    padding = 0.15 * (y_max_data - y_min_data)
+    if padding < 0.005:
+        padding = 0.005
+
+    y_min = y_min_data - padding
+    y_max = y_max_data + padding
+
+    # Ensure minimum height so lines are not overly stretched
+    min_height = 0.05
+    if (y_max - y_min) < min_height:
+        y_center = (y_min + y_max) / 2
+        y_min = y_center - min_height / 2
+        y_max = y_center + min_height / 2
+
+    ax.set_ylim(y_min, y_max)
+    
     # Custom legend: category entries + chance
     handles = legend_handles + [
         plt.Line2D(
@@ -358,7 +388,9 @@ def make_summary_figure(
             label=f"Chance ({chance:.2f})",
         )
     ]
-    labels = [CATEGORY_SHORT[n] for n in curves_dict] + [f"Chance ({chance:.2f})"]
+    labels = [CATEGORY_SHORT[n] for n in curves_dict] + [
+        f"Chance ({chance:.2f})"
+    ]
 
     ax.legend(
         handles,
@@ -434,7 +466,9 @@ def make_summary_figure(
         cell.set_facecolor(color)
         cell.set_text_props(color="white", weight="bold")
 
-    ax_table.set_title("Significant clusters vs chance", fontsize=10, pad=10)
+    ax_table.set_title(
+        "Significant clusters vs chance", fontsize=10, pad=10
+    )
 
     fig.tight_layout()
 
@@ -458,10 +492,10 @@ def run_panel(
 ):
 
     if question == "Q4":
-        analysis_name_fn = lambda cat: f"{cat}_duration_{level}ms"
+        analysis_name_fn = lambda cat, lvl=level: f"{cat}_duration_{lvl}ms"
         level_label = f"{level} ms"
     elif question == "Q5":
-        analysis_name_fn = lambda cat: f"{cat}_relevance_{level}"
+        analysis_name_fn = lambda cat, lvl=level: f"{cat}_relevance_{lvl}"
         level_label = str(level).capitalize()
     else:
         raise ValueError(f"Unsupported question: {question}")
@@ -534,6 +568,62 @@ def run_panel(
 # ============================================================
 
 if __name__ == "__main__":
+
+    SUBJECTS = [
+        "CA102",
+        "CA103",
+        "CA104",
+        "CA106",
+        "CA107",
+        "CA109",
+        "CA110",
+        "CA111",
+        "CA112",
+        "CA113",
+        "CA114",
+        "CA116",
+        "CA118",
+        "CA123",
+        "CA124",
+        "CA125",
+        "CA126",
+        "CA127",
+        "CA128",
+        "CA131",
+        "CA132",
+        "CA134",
+        "CA136",
+        "CA138",
+        "CA139",
+        "CA140",
+        "CA142",
+        "CA144",
+        "CA145",
+        "CA146",
+        "CA147",
+        "CA148",
+        "CA150",
+        "CA151",
+        "CA152",
+        "CA154",
+        "CA158",
+        "CA160",
+        "CA163",
+        "CA166",
+        "CA167",
+        "CA169",
+        "CA170",
+        "CA172",
+        "CA173",
+        "CA174",
+        "CA176",
+        "CB001",
+        "CB002",
+        "CB003",
+        "CB006",
+        "CB008",
+    ]
+
     # --------------------------------------------------------
     # Paths
     # --------------------------------------------------------
@@ -542,11 +632,14 @@ if __name__ == "__main__":
     decoding_example = out_paths_example["decoding"]
     subjects_root = decoding_example.parents[3]
 
+    group_data_dir = out_paths_example["group_data_files"]
     figures_dir = out_paths_example["figures"]
-    figures_dir.mkdir(parents=True, exist_ok=True)
+    table_dir = out_paths_example["group_tables"]
 
-    print(f"Subjects root : {subjects_root}")
-    print(f"Figures dir   : {figures_dir}")
+    print(f"Subjects root  : {subjects_root}")
+    print(f"Group data dir : {group_data_dir}")
+    print(f"Figures dir    : {figures_dir}")
+    print(f"Table dir      : {table_dir}")
 
     # --------------------------------------------------------
     # Loop
@@ -566,4 +659,5 @@ if __name__ == "__main__":
     print("=" * 70)
     print("All summary figures completed")
     print("=" * 70)
+
 # %%

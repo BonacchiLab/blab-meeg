@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import mne
-import gc
+import gc 
 
 from joblib import Parallel, delayed
 from sklearn.base import clone
@@ -47,7 +47,7 @@ BASE_RANDOM_STATE = 19
 
 METHOD = "grad"
 
-N_JOBS = 5  # paralelizar folds
+N_JOBS = 5   # paralelizar folds
 
 # ============================================================
 # 2. ANALYSIS DEFINITIONS
@@ -75,6 +75,11 @@ QUESTION_CONFIGS = {
         "tmax": None,
     },
     "Q5": {
+        "phase": "phase3",
+        "tmin": None,
+        "tmax": None,
+    },
+    "Q6": {
         "phase": "phase3",
         "tmin": None,
         "tmax": None,
@@ -480,6 +485,8 @@ def print_trial_information(
 # ============================================================
 
 
+
+
 def _run_fold(
     fold_idx,
     train_idx,
@@ -501,6 +508,7 @@ def _run_fold(
     fold_score = np.full(len(time_indices), np.nan)
 
     for i, time_idx in enumerate(time_indices):
+
         X_train_t = X_train[:, :, time_idx]
         X_test_t = X_test[:, :, time_idx]
 
@@ -562,7 +570,6 @@ def compute_decoding_curve(
 
     return scores, fold_scores
 
-
 def get_picks(info, method):
 
     if method == "grad":
@@ -614,7 +621,7 @@ def temporal_decoding(
     base_random_state=19,
     tmin=None,
     tmax=None,
-    n_jobs=5,  # <-- novo
+    n_jobs=5,   # <-- novo
 ):
 
     if tmin is not None or tmax is not None:
@@ -917,15 +924,62 @@ def make_relevance_analyses(category_comparisons, relevances):
     return analyses
 
 
+def make_duration_relevance_analyses(category_comparisons, durations, relevances):
+
+    analyses = []
+
+    for comparison in category_comparisons:
+        for duration in durations:
+            for relevance in relevances:
+
+                condition_a = add_filter(
+                    comparison["condition_a"],
+                    "duration",
+                    duration,
+                )
+                condition_a = add_filter(
+                    condition_a,
+                    "relevance",
+                    relevance,
+                )
+
+                condition_b = add_filter(
+                    comparison["condition_b"],
+                    "duration",
+                    duration,
+                )
+                condition_b = add_filter(
+                    condition_b,
+                    "relevance",
+                    relevance,
+                )
+
+                analyses.append(
+                    {
+                        "name": (
+                            f"{comparison['name']}"
+                            f"_duration_{duration}ms"
+                            f"_relevance_{relevance}"
+                        ),
+                        "condition_a": condition_a,
+                        "condition_b": condition_b,
+                    }
+                )
+
+    return analyses
+
+
+
+
 def build_analyses_for_question(
     run_mode,
     category_comparisons,
 ):
 
-    if run_mode in {"Q1", "Q2", "Q3"}:
+    if run_mode in {"Q1", "Q3"}:
         return make_category_analyses(category_comparisons)
 
-    elif run_mode == "Q4":
+    elif run_mode in {"Q2", "Q4"}:
         return make_duration_analyses(
             category_comparisons=category_comparisons,
             durations=DURATIONS,
@@ -934,6 +988,13 @@ def build_analyses_for_question(
     elif run_mode == "Q5":
         return make_relevance_analyses(
             category_comparisons=category_comparisons,
+            relevances=RELEVANCES,
+        )
+    
+    elif run_mode == "Q6":
+        return make_duration_relevance_analyses(
+            category_comparisons=category_comparisons,
+            durations=DURATIONS,
             relevances=RELEVANCES,
         )
 
@@ -971,7 +1032,57 @@ def load_epochs(subject, phase, out_paths, method):
 
         print(f"Loading:\n{epochs_path}")
 
-        return mne.read_epochs(epochs_path, preload=True, verbose=True)
+        epochs = mne.read_epochs(epochs_path, preload=True, verbose=True)
+
+        # ----------------------------------------------------
+        # Normalize duration column
+        # ----------------------------------------------------
+        #
+        # Phase 2 metadata stores duration as strings like
+        # 'dur_500ms', 'dur_1000ms', 'dur_1500ms'. Convert to
+        # integers (ms) so select_condition can match numeric
+        # values (500, 1000, 1500).
+        # ----------------------------------------------------
+
+        if "duration" in epochs.metadata.columns:
+
+            # Extract the numeric part
+            duration_series = (
+                epochs.metadata["duration"]
+                .astype(str)
+                .str.extract(r"(\d+)")[0]
+            )
+
+            # Identify trials with no numeric duration
+            valid_mask = duration_series.notna()
+
+            if not valid_mask.all():
+                n_dropped = int((~valid_mask).sum())
+                print(
+                    f"Dropping {n_dropped} trials with missing duration "
+                    f"out of {len(epochs)}"
+                )
+                epochs = epochs[valid_mask.to_numpy()].copy()
+
+            # Now convert to int (safe, no NaN left)
+            epochs.metadata["duration"] = (
+                duration_series[valid_mask]
+                .astype(int)
+                .to_numpy()
+            )
+
+        else:
+            raise RuntimeError(
+                "Phase 2 metadata does not contain a 'duration' column. "
+                "Cannot build duration-specific analyses."
+            )
+
+        print(
+            "Phase 2 unique durations (ms):",
+            sorted(epochs.metadata["duration"].unique()),
+        )
+
+        return epochs
 
     elif phase == "phase3":
         phase_ = "phase3"
@@ -1098,13 +1209,11 @@ def run_single_analysis(
 if __name__ == "__main__":
     outroot = Path("/home/blab/COGITATE/DATA/COG_MEEG_EXP1_RELEASE_OUTPUT")
 
-    subjects = sorted(
-        [
-            p.name
-            for p in outroot.iterdir()
-            if p.is_dir() and p.name.startswith(("CA", "CB"))
-        ]
-    )
+    subjects = sorted([
+        p.name
+        for p in outroot.iterdir()
+        if p.is_dir() and p.name.startswith(("CA", "CB"))
+    ])
 
     if not subjects:
         raise RuntimeError(f"Nenhum subject encontrado em {outroot}")
@@ -1112,29 +1221,75 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     # RETOMAR A PARTIR DE UM SUBJECT
     # --------------------------------------------------------
-    START_FROM = "CA132"  # None para correr todos
-    RUN_ONLY = None  # ex.: ["CA105", "CA106"]
+    START_FROM = "CA103"     # None para correr todos
+    RUN_ONLY   =  None
 
-    # a partir do CA132 nao ha Q2 pra frente
+    """
+    [
+            "CA102",
+            "CA103",
+            "CA104",
+            "CA106",
+            "CA107",
+            "CA109",
+            "CA110",
+            "CA111",
+            "CA112",
+            "CA113",
+            "CA114",
+            "CA116",
+            "CA118",
+            "CA123",
+            "CA124",
+            "CA125",
+            "CA126",
+            "CA127",
+            "CA128",
+            "CA131",
+            "CA132",
+            "CA134",
+            "CA136",
+            "CA138",
+            "CA139",
+            "CA140",
+            "CA142",
+            "CA144",
+            "CA145",
+            "CA146",
+            "CA147",
+            "CA148",
+            "CA150",
+            "CA151",
+            "CA152",
+            "CA154",
+            "CA158",
+            "CA160",
+            "CA163",
+            "CA166",
+        ]    
+    """
 
+    #a partir do CA132 nao ha Q2 pra frente 
+    
     if RUN_ONLY is not None:
         subjects = [s for s in subjects if s in RUN_ONLY]
 
     if START_FROM is not None:
         if START_FROM not in subjects:
             raise ValueError(f"{START_FROM} não está em {subjects}")
-        subjects = subjects[subjects.index(START_FROM) :]
+        subjects = subjects[subjects.index(START_FROM):]
 
     print("=" * 60)
     print(f"Subjects a correr ({len(subjects)}): {subjects}")
     print("=" * 60)
 
     for subject in subjects:
+
         # ========================================================
         # QUESTIONS
         # ========================================================
 
-        RUN_MODES = ["Q1", "Q2", "Q3"]
+        RUN_MODES = ["Q6"]
 
         # ========================================================
         # COMPARISONS TO RUN
@@ -1195,14 +1350,7 @@ if __name__ == "__main__":
         # ]
 
         # Default: run everything in the library.
-        COMPARISONS_TO_RUN = [
-            "faces_vs_objects",
-            "faces_vs_fonts",
-            "faces_vs_false_fonts",
-            "objects_vs_fonts",
-            "objects_vs_false_fonts",
-            "fonts_vs_false_fonts",
-        ]
+        COMPARISONS_TO_RUN = None
 
         # ========================================================
         # METHOD
@@ -1336,6 +1484,7 @@ if __name__ == "__main__":
                 print(analysis["name"])
                 print("=" * 60)
 
+
                 run_single_analysis(
                     epochs=epochs,
                     analysis=analysis,
@@ -1344,12 +1493,14 @@ if __name__ == "__main__":
                     out_paths=out_paths,
                     method=method,
                 )
-
+        
+                
             del epochs
             gc.collect()
-
+        
         print()
         print("=" * 60)
         print("All analyses completed")
         print("=" * 60)
+
 # %%
